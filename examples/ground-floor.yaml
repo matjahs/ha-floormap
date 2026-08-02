@@ -1,0 +1,70 @@
+# Waalbandijk 469 — ground floor (10th_floor)
+# TODO: dead entities (do not enable until replaced):
+# - light.kitchen_ledstrip_2  → overlay 6_light_kitchen_3_on_SunFlow.png @ 48%,67%
+# - light.livingroom_light_2  → overlay 7_light_living_room_2_on_SunFlow.png @ 60%,40%
+type: custom:sunflow-floorplan-card
+title: Ground Floor
+manifest: /local/floorplan/manifest.json
+render:
+  mode: baked
+  tone_map: aces
+  exposure: 1.0
+  gamma: 2.2
+  transition: 400
+  ambient: sun
+floors:
+  - level: ground
+    camera: stored_1
+    base_image: /local/lighting_renders/selected_lights_on_SunFlow.png
+entities:
+  fixture_dining_table:
+    entity: light.livingroom_light_1
+    overlay: 1_Dining_Table_on_SunFlow.png
+  fixture_hallway_1:
+    entity: light.hallway_1_light
+    overlay: 3_light_hallway_1_on_SunFlow.png
+  fixture_hallway_2:
+    entity: light.hallway_2_light
+    overlay: 4_light_hallway_2_on_SunFlow.png
+  fixture_kitchen_1:
+    entity: light.kitchen_light_1
+    overlay: 5_light_kitchen_1_on_SunFlow.png
+  fixture_living_3:
+    entity: light.livingroom_light_3
+    overlay: 8_light_living_room_3_on_SunFlow.png
+  fixture_living_5:
+    entity: light.livingroom_light_5
+    overlay: 9_light_living_room_4_on_SunFlow.png
+  fixture_toilet:
+    entity: light.shelly_toilet_output_0
+    overlay: 10_light_toilet_1_on_SunFlow.png
+  fixture_utility:
+    entity: light.utility_room_1_light_3
+    overlay: 11_light_utility_room_1_on_SunFlow.png
+  fixture_bedroom:
+    entity: light.bedroom_1_light
+    overlay: 12_lights_bedroom_on_SunFlow.png
+  fixture_office:
+    entity: light.office_light_1
+    overlay: 13_lights_office_on_SunFlow.png
+overrides:
+  fixture_dining_table:
+    marker: [52, 58]
+  fixture_hallway_1:
+    marker: [45, 40]
+  fixture_hallway_2:
+    marker: [50, 44]
+  fixture_kitchen_1:
+    marker: [63, 52]
+  fixture_living_3:
+    marker: [47, 63]
+  fixture_living_5:
+    marker: [52, 66]
+  fixture_toilet:
+    marker: [35, 35]
+  fixture_utility:
+    marker: [20, 40]
+  fixture_bedroom:
+    marker: [75, 25]
+  fixture_office:
+    marker: [65, 20]

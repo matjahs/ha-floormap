@@ -1,0 +1,9 @@
+type: custom:sunflow-floorplan-card
+title: Floorplan
+manifest: /local/floorplan/manifest.json
+render:
+  mode: baked
+  tone_map: aces
+  exposure: 1.0
+  gamma: 2.2
+  transition: 400

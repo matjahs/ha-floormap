@@ -1,0 +1,6 @@
+{
+  "name": "Sunflow Floorplan Card",
+  "filename": "sunflow-floorplan-card.js",
+  "render_readme": true,
+  "homeassistant": "2024.1.0"
+}

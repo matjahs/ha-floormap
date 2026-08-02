@@ -1,0 +1,168 @@
+type: picture-elements
+image: /local/lighting_renders/selected_lights_on_SunFlow.png
+elements:
+  - type: image
+    entity: light.livingroom_light_1
+    image: /local/lighting_renders/1_Dining_Table_on_SunFlow.png
+    style:
+      left: 50%
+      top: 50%
+      width: 100%
+      mix-blend-mode: screen
+    state_filter:
+      "on": opacity(1)
+      "off": opacity(0)
+      unavailable: opacity(0)
+  - type: state-icon
+    entity: light.livingroom_light_1
+    style:
+      top: 58%
+      left: 52%
+    tap_action:
+      action: toggle
+  - type: image
+    entity: light.hallway_1_light
+    image: /local/lighting_renders/3_light_hallway_1_on_SunFlow.png
+    style:
+      left: 50%
+      top: 50%
+      width: 100%
+      mix-blend-mode: screen
+    state_filter:
+      "on": opacity(1)
+      "off": opacity(0)
+  - type: state-icon
+    entity: light.hallway_1_light
+    style:
+      top: 40%
+      left: 45%
+  - type: image
+    entity: light.hallway_2_light
+    image: /local/lighting_renders/4_light_hallway_2_on_SunFlow.png
+    style:
+      left: 50%
+      top: 50%
+      width: 100%
+      mix-blend-mode: screen
+  - type: state-icon
+    entity: light.hallway_2_light
+    style:
+      top: 44%
+      left: 50%
+  - type: image
+    entity: light.kitchen_light_1
+    image: /local/lighting_renders/5_light_kitchen_1_on_SunFlow.png
+    style:
+      left: 50%
+      top: 50%
+      width: 100%
+      mix-blend-mode: screen
+  - type: state-icon
+    entity: light.kitchen_light_1
+    style:
+      top: 52%
+      left: 63%
+  - type: image
+    entity: light.kitchen_ledstrip_2
+    image: /local/lighting_renders/6_light_kitchen_3_on_SunFlow.png
+    style:
+      left: 50%
+      top: 50%
+      width: 100%
+      mix-blend-mode: screen
+  - type: state-icon
+    entity: light.kitchen_ledstrip_2
+    style:
+      top: 48%
+      left: 67%
+  - type: image
+    entity: light.livingroom_light_2
+    image: /local/lighting_renders/7_light_living_room_2_on_SunFlow.png
+    style:
+      left: 50%
+      top: 50%
+      width: 100%
+      mix-blend-mode: screen
+  - type: state-icon
+    entity: light.livingroom_light_2
+    style:
+      top: 60%
+      left: 40%
+  - type: image
+    entity: light.livingroom_light_3
+    image: /local/lighting_renders/8_light_living_room_3_on_SunFlow.png
+    style:
+      left: 50%
+      top: 50%
+      width: 100%
+      mix-blend-mode: screen
+  - type: state-icon
+    entity: light.livingroom_light_3
+    style:
+      top: 63%
+      left: 47%
+  - type: image
+    entity: light.livingroom_light_5
+    image: /local/lighting_renders/9_light_living_room_4_on_SunFlow.png
+    style:
+      left: 50%
+      top: 50%
+      width: 100%
+      mix-blend-mode: screen
+  - type: state-icon
+    entity: light.livingroom_light_5
+    style:
+      top: 66%
+      left: 52%
+  - type: image
+    entity: light.shelly_toilet_output_0
+    image: /local/lighting_renders/10_light_toilet_1_on_SunFlow.png
+    style:
+      left: 50%
+      top: 50%
+      width: 100%
+      mix-blend-mode: screen
+  - type: state-icon
+    entity: light.shelly_toilet_output_0
+    style:
+      top: 35%
+      left: 35%
+  - type: image
+    entity: light.utility_room_1_light_3
+    image: /local/lighting_renders/11_light_utility_room_1_on_SunFlow.png
+    style:
+      left: 50%
+      top: 50%
+      width: 100%
+      mix-blend-mode: screen
+  - type: state-icon
+    entity: light.utility_room_1_light_3
+    style:
+      top: 40%
+      left: 20%
+  - type: image
+    entity: light.bedroom_1_light
+    image: /local/lighting_renders/12_lights_bedroom_on_SunFlow.png
+    style:
+      left: 50%
+      top: 50%
+      width: 100%
+      mix-blend-mode: screen
+  - type: state-icon
+    entity: light.bedroom_1_light
+    style:
+      top: 25%
+      left: 75%
+  - type: image
+    entity: light.office_light_1
+    image: /local/lighting_renders/13_lights_office_on_SunFlow.png
+    style:
+      left: 50%
+      top: 50%
+      width: 100%
+      mix-blend-mode: screen
+  - type: state-icon
+    entity: light.office_light_1
+    style:
+      top: 20%
+      left: 65%

@@ -1,0 +1,15 @@
+node_modules/
+dist/
+dist-types/
+*.log
+.DS_Store
+coverage/
+.vscode/
+.idea/
+*.local
+.env
+.env.*
+tests/fixtures/sweethome3d/*.sh3d
+tests/fixtures/renders/
+*.png
+!docs/**/*.png
