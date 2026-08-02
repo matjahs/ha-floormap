@@ -108,7 +108,9 @@ overrides:
     marker: [52, 58]     # optional nudge (left%, top%)
 ```
 
-See `examples/` for minimal, Waalbandijk ground floor, and two-floor stubs.
+See `examples/` for minimal, Waalbandijk ground floor (`examples/ground-floor.yaml` /
+`examples/generated/`), and two-floor stubs. The generated Waalbandijk config is derived
+from **`waalbandijk_2024.sh3d`** (stable fixture IDs + hand-placed markers).
 
 ### Migration
 
