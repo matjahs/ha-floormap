@@ -1,0 +1,72 @@
+{
+  "name": "sunflow-floorplan-card",
+  "version": "0.1.0",
+  "description": "Home Assistant Lovelace card with dynamic floorplan lighting from SweetHome3D models",
+  "type": "module",
+  "main": "dist/sunflow-floorplan-card.js",
+  "module": "dist/sunflow-floorplan-card.js",
+  "exports": {
+    ".": "./dist/sunflow-floorplan-card.js",
+    "./package.json": "./package.json"
+  },
+  "bin": {
+    "sunflow-floorplan": "./dist/cli/import.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "sideEffects": [
+    "./src/card.ts",
+    "./dist/sunflow-floorplan-card.js"
+  ],
+  "scripts": {
+    "dev": "vite build --watch",
+    "build": "tsc --noEmit && vite build && npm run build:cli",
+    "build:cli": "esbuild cli/import.ts --bundle --platform=node --format=esm --outfile=dist/cli/import.mjs --packages=external && node -e \"import('node:fs').then(fs=>{const b=fs.readFileSync('dist/cli/import.mjs');fs.writeFileSync('dist/cli/import.js','#!/usr/bin/env node\\n'+b);fs.chmodSync('dist/cli/import.js',0o755);})\"",
+    "start:cli": "node --import tsx cli/import.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "eslint .",
+    "format": "prettier --write \"src/**/*.{ts,tsx}\" \"cli/**/*.ts\" \"tests/**/*.ts\"",
+    "format:check": "prettier --check \"src/**/*.{ts,tsx}\" \"cli/**/*.ts\" \"tests/**/*.ts\""
+  },
+  "keywords": [
+    "home-assistant",
+    "lovelace",
+    "floorplan",
+    "sweethome3d",
+    "lighting"
+  ],
+  "author": "",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/matjahs/ha-floormap"
+  },
+  "dependencies": {
+    "custom-card-helpers": "^1.9.0",
+    "fflate": "^0.8.2",
+    "lit": "^3.2.1",
+    "three": "^0.172.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.17.0",
+    "@types/node": "^22.10.5",
+    "@types/three": "^0.172.0",
+    "@typescript-eslint/eslint-plugin": "^8.19.1",
+    "@typescript-eslint/parser": "^8.19.1",
+    "esbuild": "^0.24.2",
+    "eslint": "^9.17.0",
+    "eslint-config-prettier": "^9.1.0",
+    "jsdom": "^25.0.1",
+    "prettier": "^3.4.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.7",
+    "vitest": "^2.1.8",
+    "yaml": "^2.7.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

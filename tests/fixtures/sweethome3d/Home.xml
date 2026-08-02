@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<home version="1.0" name="TestApartment" wallHeight="250">
+  <environment lightColor="-1" skyColor="-1513240" groundColor="-13290186"
+    photoWidth="720" photoHeight="405" photoAspectRatio="RATIO_16_9"/>
+  <camera id="stored_1" name="SunFlow" lens="PINHOLE"
+    x="200" y="400" z="280" yaw="0.5" pitch="0.6" fieldOfView="1.0"
+    attribute="storedCamera"/>
+  <level id="level_0" name="10th_floor" elevation="0" floorThickness="20" height="250"/>
+  <light id="dining" name="Dining Table Light" level="level_0"
+    x="260" y="220" elevation="0" width="40" depth="40" height="80" angle="0" power="0.5">
+    <lightSource x="0.5" y="0.5" z="0.9" color="-1" diameter="5"/>
+  </light>
+  <light id="hall1" name="Hallway 1" level="level_0"
+    x="200" y="250" elevation="220" width="10" depth="10" height="5" angle="0" power="0.5">
+    <lightSource x="0.5" y="0.5" z="0.5" color="-1"/>
+  </light>
+  <wall id="w1" level="level_0" xStart="0" yStart="0" xEnd="500" yEnd="0" height="250" thickness="12"/>
+  <wall id="w2" level="level_0" xStart="500" yStart="0" xEnd="500" yEnd="400" height="250" thickness="12"/>
+  <room id="living" level="level_0" name="Living Room">
+    <point x="100" y="100"/>
+    <point x="400" y="100"/>
+    <point x="400" y="300"/>
+    <point x="100" y="300"/>
+  </room>
+  <doorOrWindow id="door1" name="Door" level="level_0"
+    x="150" y="100" elevation="0" width="90" depth="10" height="210" angle="0"/>
+</home>
