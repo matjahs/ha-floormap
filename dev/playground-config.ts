@@ -65,27 +65,22 @@ export const playgroundConfig: SunflowFloorplanCardConfig = {
     },
     "light_light-61dde89b-428f-4267-afce-8b74ca5805d7": {
       entity: "light.kitchen_light_1",
-      group: "kitchen",
       overlay: "5_light_kitchen_1_on_SunFlow.png",
     },
     "light_light-82daac96-955d-481f-a387-80dad1df596e": {
       entity: "light.kitchen_ledstrip_2",
-      group: "kitchen",
       overlay: "6_light_kitchen_3_on_SunFlow.png",
     },
     "light_light-b49f096c-5f12-403a-ac35-85992a5dfcec": {
       entity: "light.livingroom_light_2",
-      group: "living",
       overlay: "7_light_living_room_2_on_SunFlow.png",
     },
     "light_light-0132dd10-e80e-4d30-af07-a924d762af8e": {
       entity: "light.livingroom_light_3",
-      group: "living",
       overlay: "8_light_living_room_3_on_SunFlow.png",
     },
     "light_light-bd58bf5c-2f47-4635-9c62-9bf0bb5bfb2c": {
       entity: "light.livingroom_light_5",
-      group: "living",
       overlay: "9_light_living_room_4_on_SunFlow.png",
     },
     "light_light-6c843e68-6d03-4eb4-8989-0503a0c98294": {

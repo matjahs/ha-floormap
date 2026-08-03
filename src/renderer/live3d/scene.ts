@@ -7,6 +7,7 @@ import {
   resolveStripSamples,
   stripSamplePositions,
 } from "../../strip";
+import { groupHue } from "../../groups";
 import type {
   WebGLRenderer,
   Scene,
@@ -28,6 +29,8 @@ export interface Live3dHandle {
   /** Move strip while preserving start→end vector (translate by delta from old start). */
   setStripPose(fixtureId: string, start: Vec3, end: Vec3): void;
   setCamera(cam: CameraIR): void;
+  /** Near-top-down framing for edit mode; restores prior view when cleared. */
+  setEditTopDown(enabled: boolean): void;
   setOrbitEnabled(enabled: boolean): void;
   setHandlesVisible(visible: boolean): void;
   /** Raycast floor plane; keeps Z elevation from current light or default. */
@@ -55,6 +58,10 @@ export interface Live3dOptions {
   levelElevation?: number;
   /** When set, only these fixtures get visible/pickable edit handles. */
   editableFixtureIds?: string[];
+  /** Display labels for edit handles (friendly name / entity). */
+  editableFixtureLabels?: Record<string, string>;
+  /** Room/tag id per fixture — colors edit markers by room. */
+  editableFixtureRooms?: Record<string, string>;
 }
 
 function planToRender(pos: Vec3): { x: number; y: number; z: number } {
@@ -622,16 +629,161 @@ export async function createLive3dRenderer(
 
   const lights = new Map<string, PointLight[]>();
   const stripEnds = new Map<string, Vec3>();
-  const handles = new Map<string, Mesh>();
-  const handleMat = new THREE.MeshBasicMaterial({
-    color: 0xffe08a,
-    transparent: true,
-    opacity: 0.85,
+  const handles = new Map<string, Object3D>();
+  // Edit markers sit just above the floor so dollhouse placement is easy to read.
+  const handleFloorY = () => (opts.levelElevation ?? 0) + 6;
+  const markerFillMat = new THREE.MeshBasicMaterial({
+    color: 0xff2d55,
+    depthTest: false,
+  });
+  const markerRimMat = new THREE.MeshBasicMaterial({
+    color: 0x111111,
     depthTest: false,
   });
   const editable = opts.editableFixtureIds
     ? new Set(opts.editableFixtureIds)
     : null;
+  const labels = opts.editableFixtureLabels ?? {};
+  const rooms = opts.editableFixtureRooms ?? {};
+
+  const roomFillColor = (roomId: string | undefined): number => {
+    if (!roomId) {
+      return 0xff2d55;
+    }
+    // Vivid HSL from stable room hue.
+    const h = groupHue(roomId);
+    const c = new THREE.Color();
+    c.setHSL(h / 360, 0.78, 0.52);
+    return c.getHex();
+  };
+
+  const placePointHandle = (handle: Object3D, planX: number, planY: number) => {
+    handle.position.set(planX, handleFloorY(), planY);
+  };
+
+  const placeStripHandle = (
+    handle: Object3D,
+    start: Vec3,
+    end: Vec3,
+  ) => {
+    const midX = (start.x + end.x) / 2;
+    const midY = (start.y + end.y) / 2;
+    handle.position.set(midX, handleFloorY(), midY);
+    const body = handle.userData.body as Object3D | undefined;
+    if (body) {
+      body.rotation.set(Math.PI / 2, 0, Math.atan2(end.y - start.y, end.x - start.x));
+    }
+  };
+
+  const makeLabelSprite = (text: string): Object3D => {
+    const label = text.trim() || "?";
+    const padX = 28;
+    const padY = 16;
+    const fontPx = 42;
+    const canvas = document.createElement("canvas");
+    const ctx = canvas.getContext("2d")!;
+    ctx.font = `700 ${fontPx}px system-ui, -apple-system, sans-serif`;
+    const textW = Math.ceil(ctx.measureText(label).width);
+    canvas.width = textW + padX * 2;
+    canvas.height = fontPx + padY * 2;
+    ctx.font = `700 ${fontPx}px system-ui, -apple-system, sans-serif`;
+    // Dark pill + pink edge so it reads on light PVC floors.
+    const r = canvas.height / 2;
+    ctx.fillStyle = "rgba(17, 17, 17, 0.92)";
+    ctx.strokeStyle = "#ff2d55";
+    ctx.lineWidth = 6;
+    ctx.beginPath();
+    ctx.moveTo(r, 0);
+    ctx.lineTo(canvas.width - r, 0);
+    ctx.quadraticCurveTo(canvas.width, 0, canvas.width, r);
+    ctx.lineTo(canvas.width, canvas.height - r);
+    ctx.quadraticCurveTo(canvas.width, canvas.height, canvas.width - r, canvas.height);
+    ctx.lineTo(r, canvas.height);
+    ctx.quadraticCurveTo(0, canvas.height, 0, canvas.height - r);
+    ctx.lineTo(0, r);
+    ctx.quadraticCurveTo(0, 0, r, 0);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = "#ffffff";
+    ctx.textBaseline = "middle";
+    ctx.textAlign = "center";
+    ctx.fillText(label, canvas.width / 2, canvas.height / 2 + 1);
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    tex.needsUpdate = true;
+    const mat = new THREE.SpriteMaterial({
+      map: tex,
+      depthTest: false,
+      transparent: true,
+    });
+    const sprite = new THREE.Sprite(mat);
+    // World size in cm — readable in top-down edit view.
+    const worldH = 55;
+    const worldW = worldH * (canvas.width / canvas.height);
+    sprite.scale.set(worldW, worldH, 1);
+    sprite.position.y = 48;
+    sprite.center.set(0.5, 0);
+    sprite.renderOrder = 20;
+    return sprite;
+  };
+
+  const makePointMarker = (label: string, roomId?: string): Object3D => {
+    const g = new THREE.Group();
+    const body = new THREE.Group();
+    const fillMat = markerFillMat.clone();
+    fillMat.color.setHex(roomFillColor(roomId));
+    const rim = new THREE.Mesh(
+      new THREE.CylinderGeometry(52, 52, 3, 32),
+      markerRimMat.clone(),
+    );
+    const fill = new THREE.Mesh(
+      new THREE.CylinderGeometry(38, 38, 6, 32),
+      fillMat,
+    );
+    fill.position.y = 2;
+    rim.renderOrder = 10;
+    fill.renderOrder = 11;
+    body.add(rim);
+    body.add(fill);
+    g.userData.body = body;
+    g.add(body);
+    g.add(makeLabelSprite(label));
+    return g;
+  };
+
+  const makeStripMarker = (len: number, label: string, roomId?: string): Object3D => {
+    const g = new THREE.Group();
+    const body = new THREE.Group();
+    const bodyLen = Math.max(24, len - 40);
+    const fillMat = markerFillMat.clone();
+    fillMat.color.setHex(roomFillColor(roomId));
+    const rim = new THREE.Mesh(
+      new THREE.CapsuleGeometry(22, bodyLen, 4, 8),
+      markerRimMat.clone(),
+    );
+    const fill = new THREE.Mesh(
+      new THREE.CapsuleGeometry(14, Math.max(16, bodyLen - 8), 4, 8),
+      fillMat,
+    );
+    rim.scale.set(1.15, 1, 1.15);
+    rim.renderOrder = 10;
+    fill.renderOrder = 11;
+    body.add(rim);
+    body.add(fill);
+    g.userData.body = body;
+    g.add(body);
+    g.add(makeLabelSprite(label));
+    return g;
+  };
+
+  const labelForFixture = (fxId: string, fxName: string): string => {
+    const fromMap = labels[fxId]?.trim();
+    if (fromMap) {
+      return fromMap;
+    }
+    return fxName.replace(/^light_/i, "").replace(/_/g, " ").slice(0, 28);
+  };
 
   for (const fx of ir.fixtures) {
     const col = new THREE.Color(fx.color) as Color;
@@ -661,26 +813,16 @@ export async function createLive3dRenderer(
     if (editable && !editable.has(fx.id)) {
       continue;
     }
-    let handle: Mesh;
+    const label = labelForFixture(fx.id, fx.name);
+    const roomId = rooms[fx.id];
+    let handle: Object3D;
     if (kind === "strip" && end && positions.length >= 2) {
       const len = Math.hypot(end.x - start.x, end.y - start.y) || 40;
-      handle = new THREE.Mesh(
-        new THREE.CapsuleGeometry(18, Math.max(20, len - 36), 4, 8),
-        handleMat.clone(),
-      );
-      const mid = planToRender({
-        x: (start.x + end.x) / 2,
-        y: (start.y + end.y) / 2,
-        z: (start.z + end.z) / 2,
-      });
-      handle.position.set(mid.x, mid.y, mid.z);
-      handle.rotation.z = Math.atan2(end.y - start.y, end.x - start.x);
-      // Capsule default is Y-aligned; lay along XZ strip.
-      handle.rotation.x = Math.PI / 2;
+      handle = makeStripMarker(len, label, roomId);
+      placeStripHandle(handle, start, end);
     } else {
-      handle = new THREE.Mesh(new THREE.SphereGeometry(45, 16, 16), handleMat.clone());
-      const r = planToRender(start);
-      handle.position.set(r.x, r.y, r.z);
+      handle = makePointMarker(label, roomId);
+      placePointHandle(handle, start.x, start.y);
     }
     handle.userData.fixtureId = fx.id;
     handle.visible = false;
@@ -747,6 +889,54 @@ export async function createLive3dRenderer(
   };
 
   let activeCamera: CameraIR | undefined = initialCamera ?? ir.cameras[0];
+  let editTopDown = false;
+  let savedView: {
+    x: number;
+    y: number;
+    z: number;
+    tx: number;
+    ty: number;
+    tz: number;
+    fov: number;
+  } | null = null;
+
+  const applyTopDownEditView = () => {
+    const minX = ir.bounds.min.x;
+    const maxX = ir.bounds.max.x;
+    const minZ = ir.bounds.min.y;
+    const maxZ = ir.bounds.max.y;
+    const cx = (minX + maxX) / 2;
+    const cz = (minZ + maxZ) / 2;
+    const span = Math.max(maxX - minX, maxZ - minZ) * 1.08;
+    const aspect = Math.max(0.5, camera.aspect || 16 / 9);
+    const fovRad = (50 * Math.PI) / 180;
+    const hFov = 2 * Math.atan(Math.tan(fovRad / 2) * aspect);
+    const fitDist = Math.max(
+      span / 2 / Math.tan(fovRad / 2),
+      span / 2 / Math.tan(hFov / 2),
+    );
+    // Almost straight down — tiny tilt so floor markers keep depth cues.
+    const polar = 0.12;
+    const azimuth = -Math.PI / 2;
+    const dist = fitDist * 1.02;
+    const elev = opts.levelElevation ?? 0;
+    const target = { x: cx, y: elev, z: cz };
+    const eye = {
+      x: cx + Math.sin(polar) * Math.cos(azimuth) * dist,
+      y: elev + Math.cos(polar) * dist,
+      z: cz + Math.sin(polar) * Math.sin(azimuth) * dist,
+    };
+    camera.fov = (fovRad * 180) / Math.PI;
+    camera.up.set(0, 1, 0);
+    camera.position.set(eye.x, eye.y, eye.z);
+    controls.target.set(target.x, target.y, target.z);
+    camera.lookAt(target.x, target.y, target.z);
+    camera.updateProjectionMatrix();
+    controls.update();
+    scene.background = new THREE.Color("#e6e6e4");
+    renderer.setClearColor(0xe6e6e4, 1);
+  };
+
   if (activeCamera) {
     applyCamera(activeCamera);
   }
@@ -776,12 +966,7 @@ export async function createLive3dRenderer(
     }
     const handle = handles.get(fixtureId);
     if (handle) {
-      const mid = planToRender({
-        x: (start.x + end.x) / 2,
-        y: (start.y + end.y) / 2,
-        z: (start.z + end.z) / 2,
-      });
-      handle.position.set(mid.x, mid.y, mid.z);
+      placeStripHandle(handle, start, end);
     }
   };
 
@@ -796,12 +981,7 @@ export async function createLive3dRenderer(
         pl.intensity = params.on ? params.intensity * 800 : 0;
         pl.color.setRGB(params.color[0], params.color[1], params.color[2]);
       }
-      const handle = handles.get(fixtureId);
-      if (handle) {
-        const mat = handle.material as import("three").MeshBasicMaterial;
-        mat.color.setRGB(params.color[0], params.color[1], params.color[2]);
-        mat.opacity = params.on ? 0.95 : 0.45;
-      }
+      // Floor markers stay a fixed high-contrast style while editing.
     },
     setLightSamples(fixtureId, paramsList) {
       const group = lights.get(fixtureId);
@@ -816,14 +996,6 @@ export async function createLive3dRenderer(
         }
         pl.intensity = params.on ? params.intensity * 800 : 0;
         pl.color.setRGB(params.color[0], params.color[1], params.color[2]);
-      }
-      const anyOn = paramsList.some((p) => p.on);
-      const first = paramsList.find((p) => p.on) ?? paramsList[0];
-      const handle = handles.get(fixtureId);
-      if (handle && first) {
-        const mat = handle.material as import("three").MeshBasicMaterial;
-        mat.color.setRGB(first.color[0], first.color[1], first.color[2]);
-        mat.opacity = anyOn ? 0.95 : 0.45;
       }
     },
     setLightPosition(fixtureId, pos) {
@@ -854,13 +1026,49 @@ export async function createLive3dRenderer(
       }
       const handle = handles.get(fixtureId);
       if (handle) {
-        handle.position.set(r.x, r.y, r.z);
+        placePointHandle(handle, pos.x, pos.y);
       }
     },
     setStripPose,
     setCamera(cam) {
       activeCamera = cam;
       applyCamera(cam);
+      if (editTopDown) {
+        applyTopDownEditView();
+      }
+    },
+    setEditTopDown(enabled) {
+      if (enabled) {
+        if (!editTopDown) {
+          savedView = {
+            x: camera.position.x,
+            y: camera.position.y,
+            z: camera.position.z,
+            tx: controls.target.x,
+            ty: controls.target.y,
+            tz: controls.target.z,
+            fov: camera.fov,
+          };
+        }
+        editTopDown = true;
+        applyTopDownEditView();
+        return;
+      }
+      if (!editTopDown) {
+        return;
+      }
+      editTopDown = false;
+      if (savedView) {
+        camera.fov = savedView.fov;
+        camera.position.set(savedView.x, savedView.y, savedView.z);
+        controls.target.set(savedView.tx, savedView.ty, savedView.tz);
+        camera.lookAt(savedView.tx, savedView.ty, savedView.tz);
+        camera.updateProjectionMatrix();
+        controls.update();
+        savedView = null;
+      } else if (activeCamera) {
+        applyCamera(activeCamera);
+      }
     },
     setOrbitEnabled(enabled) {
       controls.enabled = enabled;
@@ -898,13 +1106,19 @@ export async function createLive3dRenderer(
         const id = h.userData.fixtureId as string;
         return !allowedIds || allowedIds.has(id);
       });
-      // Enlarge pick tolerance for top-down views
-      raycaster.params.Points = { threshold: 40 };
-      const hits = raycaster.intersectObjects(objs, false);
+      const hits = raycaster.intersectObjects(objs, true);
       if (hits.length === 0) {
         return null;
       }
-      return (hits[0]!.object.userData.fixtureId as string) ?? null;
+      let obj: Object3D | null = hits[0]!.object;
+      while (obj) {
+        const id = obj.userData.fixtureId as string | undefined;
+        if (id) {
+          return id;
+        }
+        obj = obj.parent;
+      }
+      return null;
     },
     resize(width, height) {
       camera.aspect = width / Math.max(1, height);
@@ -913,6 +1127,9 @@ export async function createLive3dRenderer(
       // Re-frame top cameras now that aspect is known.
       if (activeCamera) {
         applyCamera(activeCamera);
+      }
+      if (editTopDown) {
+        applyTopDownEditView();
       }
     },
     render() {

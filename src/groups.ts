@@ -1,8 +1,10 @@
+import type { HomeAssistant } from "custom-card-helpers";
 import type {
   LightGroupConfig,
   SunflowFloorplanCardConfig,
   Vec2,
 } from "./types";
+import { effectiveEntityGroup, normalizeRoomId } from "./ha-room";
 
 export interface GroupTapHotspot {
   groupId: string;
@@ -10,15 +12,40 @@ export interface GroupTapHotspot {
   polygonUv: Vec2[];
 }
 
-/** Union of explicit `groups` keys and `entities.*.group` membership. */
-export function discoverGroupIds(cfg: SunflowFloorplanCardConfig): string[] {
+/** Look up groups.* by normalized id (YAML keys may differ in casing/spacing). */
+export function findGroupConfig(
+  cfg: SunflowFloorplanCardConfig,
+  groupId: string,
+): LightGroupConfig | undefined {
+  const groups = cfg.groups ?? {};
+  if (groups[groupId]) {
+    return groups[groupId];
+  }
+  const want = normalizeRoomId(groupId);
+  for (const [key, value] of Object.entries(groups)) {
+    if (normalizeRoomId(key) === want) {
+      return value;
+    }
+  }
+  return undefined;
+}
+
+/** Union of explicit `groups` keys, YAML membership, and HA room tags. */
+export function discoverGroupIds(
+  cfg: SunflowFloorplanCardConfig,
+  hass?: HomeAssistant,
+): string[] {
   const ids = new Set<string>();
   for (const id of Object.keys(cfg.groups ?? {})) {
-    ids.add(id);
+    const n = normalizeRoomId(id);
+    if (n) {
+      ids.add(n);
+    }
   }
   for (const ent of Object.values(cfg.entities ?? {})) {
-    if (ent.group) {
-      ids.add(ent.group);
+    const g = effectiveEntityGroup(ent.group, hass, ent.entity);
+    if (g) {
+      ids.add(g);
     }
   }
   return [...ids].sort();
@@ -27,17 +54,19 @@ export function discoverGroupIds(cfg: SunflowFloorplanCardConfig): string[] {
 export function memberEntitiesForGroup(
   cfg: SunflowFloorplanCardConfig,
   groupId: string,
+  hass?: HomeAssistant,
 ): string[] {
+  const want = normalizeRoomId(groupId);
   const out: string[] = [];
   for (const ent of Object.values(cfg.entities ?? {})) {
-    if (ent.group === groupId) {
+    if (effectiveEntityGroup(ent.group, hass, ent.entity) === want) {
       out.push(ent.entity);
       for (const seg of ent.segments ?? []) {
         out.push(seg.entity);
       }
     }
   }
-  const master = cfg.groups?.[groupId]?.entity;
+  const master = findGroupConfig(cfg, want)?.entity;
   if (master && !out.includes(master)) {
     out.unshift(master);
   }
@@ -58,7 +87,7 @@ export function buildGroupTapHotspots(
       continue;
     }
     out.push({
-      groupId,
+      groupId: normalizeRoomId(groupId) || groupId,
       polygonUv: area.map(([left, top]) => ({ x: left / 100, y: top / 100 })),
     });
   }

@@ -38,8 +38,10 @@ function syncCardHass(): void {
   card.hass = {
     ...asHass(),
     states: { ...mock.states },
+    entities: { ...mock.entities },
+    areas: { ...mock.areas },
     callService: mock.callService.bind(mock),
-  } as HomeAssistant;
+  } as unknown as HomeAssistant;
 }
 
 function renderToggles(): void {

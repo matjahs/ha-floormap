@@ -311,7 +311,9 @@ export class SunflowFloorplanCardEditor extends LitElement implements LovelaceCa
           </tbody>
         </table>
         <p class="hint">
-          Groups: set the same group id on fixtures. With <code>edit_mode: true</code>, use
+          Groups: tag lights in HA with a room label (Settings → Labels), or assign an
+          Area. The card uses labels first, then area. YAML <code>group:</code> still
+          overrides. With <code>edit_mode: true</code>, use
           <strong>Draw tap area</strong> on the card (select a group chip, click the map) or
           set <code>groups.NAME.tap_area</code> in YAML. Optional
           <code>groups.NAME.entity</code> for a master toggle. Hold on a marker = more-info
