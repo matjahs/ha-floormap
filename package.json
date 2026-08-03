@@ -21,14 +21,16 @@
   ],
   "scripts": {
     "dev": "vite build --watch",
+    "playground": "vite --config vite.playground.config.ts",
+    "playground:sync": "bash scripts/playground-sync.sh",
     "build": "tsc --noEmit && vite build && npm run build:cli",
     "build:cli": "esbuild cli/import.ts --bundle --platform=node --format=esm --outfile=dist/cli/import.mjs --packages=external && node -e \"import('node:fs').then(fs=>{const b=fs.readFileSync('dist/cli/import.mjs');fs.writeFileSync('dist/cli/import.js','#!/usr/bin/env node\\n'+b);fs.chmodSync('dist/cli/import.js',0o755);})\"",
     "start:cli": "node --import tsx cli/import.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "eslint .",
-    "format": "prettier --write \"src/**/*.{ts,tsx}\" \"cli/**/*.ts\" \"tests/**/*.ts\"",
-    "format:check": "prettier --check \"src/**/*.{ts,tsx}\" \"cli/**/*.ts\" \"tests/**/*.ts\""
+    "format": "prettier --write \"src/**/*.{ts,tsx}\" \"cli/**/*.ts\" \"tests/**/*.ts\" \"dev/**/*.ts\"",
+    "format:check": "prettier --check \"src/**/*.{ts,tsx}\" \"cli/**/*.ts\" \"tests/**/*.ts\" \"dev/**/*.ts\""
   },
   "keywords": [
     "home-assistant",

@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Sunflow Floorplan — playground</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #12141a;
+        --panel: #1c1f28;
+        --border: #2e3340;
+        --text: #e8eaef;
+        --muted: #9aa3b2;
+        --accent: #6ea8fe;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        font-family: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+        background: radial-gradient(1200px 600px at 20% -10%, #1a2233, var(--bg));
+        color: var(--text);
+        min-height: 100vh;
+      }
+      header {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+        align-items: center;
+        justify-content: space-between;
+        padding: 16px 20px;
+        border-bottom: 1px solid var(--border);
+        background: rgba(18, 20, 26, 0.85);
+        backdrop-filter: blur(8px);
+        position: sticky;
+        top: 0;
+        z-index: 10;
+      }
+      header h1 {
+        margin: 0;
+        font-size: 1.1rem;
+        font-weight: 600;
+        letter-spacing: 0.02em;
+      }
+      header p {
+        margin: 4px 0 0;
+        color: var(--muted);
+        font-size: 0.85rem;
+      }
+      .layout {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 280px;
+        gap: 16px;
+        padding: 16px 20px 32px;
+        max-width: 1400px;
+        margin: 0 auto;
+      }
+      @media (max-width: 960px) {
+        .layout {
+          grid-template-columns: 1fr;
+        }
+      }
+      .stage {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 12px;
+        overflow: auto;
+      }
+      .side {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 12px;
+        align-self: start;
+      }
+      .side h2 {
+        margin: 0 0 10px;
+        font-size: 0.95rem;
+      }
+      .side button,
+      header button {
+        appearance: none;
+        border: 1px solid var(--border);
+        background: #252a36;
+        color: var(--text);
+        border-radius: 8px;
+        padding: 6px 10px;
+        font: inherit;
+        cursor: pointer;
+      }
+      .side button:hover,
+      header button:hover {
+        border-color: var(--accent);
+      }
+      .side button.on {
+        background: #2a3a28;
+        border-color: #5f9e6e;
+      }
+      .toggles {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+      .toggles button {
+        text-align: left;
+        font-size: 0.8rem;
+      }
+      .row {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        margin-bottom: 12px;
+      }
+      #status {
+        font-size: 0.8rem;
+        color: var(--muted);
+        white-space: pre-wrap;
+      }
+      #status.err {
+        color: #f5a8a8;
+      }
+      sunflow-floorplan-card {
+        display: block;
+        width: 100%;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div>
+        <h1>Sunflow Floorplan playground</h1>
+        <p>
+          Local card + mock Hass. Overlays via
+          <code>/local/…</code> (synced files or HA proxy).
+        </p>
+      </div>
+      <div class="row" style="margin: 0">
+        <button type="button" id="btn-all-on">All on</button>
+        <button type="button" id="btn-all-off">All off</button>
+        <button type="button" id="btn-export">Export placements</button>
+        <button type="button" id="btn-reload">Reload card</button>
+      </div>
+    </header>
+    <div class="layout">
+      <div class="stage" id="stage"></div>
+      <aside class="side">
+        <h2>Lights</h2>
+        <div class="row">
+          <button type="button" id="btn-random">Random</button>
+        </div>
+        <div class="toggles" id="toggles"></div>
+        <h2 style="margin-top: 16px">Status</h2>
+        <div id="status">Starting…</div>
+        <h2 style="margin-top: 16px">placements.json</h2>
+        <textarea id="export" rows="10" readonly style="width:100%;font:12px/1.4 ui-monospace,monospace;background:#12141a;color:#c8cdd8;border:1px solid var(--border);border-radius:8px;padding:8px"></textarea>
+      </aside>
+    </div>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

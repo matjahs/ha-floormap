@@ -19,20 +19,56 @@ export interface BBox {
 export type RenderMode = "baked" | "live3d";
 export type ToneMap = "aces" | "reinhard" | "none";
 export type AmbientMode = "off" | "sun" | string;
+export type FixtureKind = "point" | "strip";
 
-export interface FixtureEntityConfig {
+/** WLED-style segment along a strip fixture (fractions 0..1). */
+export interface StripSegmentConfig {
   entity: string;
-  overlay?: string;
+  /** Start fraction along strip [0, 1]. */
+  start: number;
+  /** End fraction along strip [0, 1]. */
+  end: number;
   tap_action?: ActionConfig;
   hold_action?: ActionConfig;
   double_tap_action?: ActionConfig;
 }
 
+export interface FixtureEntityConfig {
+  entity: string;
+  overlay?: string;
+  /** Membership id for joint control chips / tap areas. */
+  group?: string;
+  tap_action?: ActionConfig;
+  hold_action?: ActionConfig;
+  double_tap_action?: ActionConfig;
+  /** Strip segments (each gets its own marker). */
+  segments?: StripSegmentConfig[];
+}
+
+/**
+ * Optional HA light group / master plus actions and a stage tap polygon.
+ * tap_area is a list of [left%, top%] points (stage percent, same as markers).
+ */
+export interface LightGroupConfig {
+  entity?: string;
+  tap_action?: ActionConfig;
+  hold_action?: ActionConfig;
+  double_tap_action?: ActionConfig;
+  /** Polygon in stage % — tap toggles the group (or runs tap_action). */
+  tap_area?: [number, number][];
+}
+
 export interface FixtureOverride {
   gain?: number;
   curve?: "gamma" | "linear";
-  /** Manual nudge as [left%, top%] */
+  /** Manual nudge as [left%, top%] (baked plate icons) */
   marker?: [number, number];
+  /** Plan-space pose in cm (SH3D X/Y floor, Z elevation). Wins over IR. */
+  position?: [number, number, number];
+  /** Strip endpoint override [x, y, z] plan cm. */
+  end?: [number, number, number];
+  kind?: FixtureKind;
+  samples?: number;
   color?: string;
 }
 
@@ -55,10 +91,47 @@ export interface SunflowFloorplanCardConfig extends LovelaceCardConfig {
   type: string;
   title?: string;
   manifest?: string;
+  /**
+   * Optional URL to placements.json: { [fixtureId]: { position: [x,y,z] } }.
+   * Merged into overrides.position at load (YAML dashboards cannot persist config-changed).
+   */
+  placements?: string;
+  /**
+   * Floorplanner FML JSON URL (project `*.json.fml` or design document).
+   * When set in live3d, replaces extruded walls/rooms/furniture with FML + GLBs.
+   */
+  fml?: string;
+  /** Directory of local GLBs named `{refid}.glb` / `opening-{id}.glb`. */
+  fml_assets?: string;
+  /** Optional refid→URL map (CDN or local). */
+  fml_glb_map?: string;
+  /** Optional Floorplanner materials map (`rs-…` / numeric id → texture URLs). */
+  fml_materials?: string;
+  /**
+   * Default floor texture for FML rooms (real-home PVC etc.).
+   * Applied to every room except bath/toilet unless exclude_name_includes is set.
+   */
+  fml_default_floor?: {
+    texture: string;
+    tile_width_cm?: number;
+    tile_height_cm?: number;
+    exclude_name_includes?: string[];
+  };
+  /** Named room floor overrides (matched by name substring). */
+  fml_room_floors?: Array<{
+    name_includes: string[];
+    texture: string;
+    tile_width_cm?: number;
+    tile_height_cm?: number;
+  }>;
   render?: RenderConfig;
   floors?: FloorConfig[];
   entities?: Record<string, FixtureEntityConfig>;
+  /** Named groups for bulk control + optional stage tap polygons. */
+  groups?: Record<string, LightGroupConfig>;
   overrides?: Record<string, FixtureOverride>;
+  /** When true, show Edit lights control (drag only while editing). */
+  edit_mode?: boolean;
   /** Inline IR for editor preview / tests */
   ir?: import("./import/ir").FloorplanIR;
   /** Inline render manifest when not loading from URL */
@@ -101,6 +174,10 @@ export interface MarkerState {
   top: number;
   params: LightParams;
   friendlyName?: string;
+  /** Optional group membership for visual cue. */
+  group?: string;
+  /** When set, marker is a strip segment (action target = segment entity). */
+  segmentIndex?: number;
 }
 
 declare global {

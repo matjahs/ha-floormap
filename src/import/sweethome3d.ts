@@ -272,6 +272,56 @@ export function parseHomeXml(xml: string, fileName = "Home.xml"): FloorplanIR {
     const power = num(el, "power", 0.5);
     const sources = Array.from(el.querySelectorAll(":scope > lightSource"));
     const list = sources.length > 0 ? sources : [null];
+    const pieceLen = Math.max(piece.width, piece.depth);
+    // Long multi-source lights → one strip fixture (IR v2).
+    const asStrip = sources.length >= 2 && pieceLen >= 80;
+
+    if (asStrip) {
+      const worldPts = sources.map((src) => {
+        const sx = num(src!, "x", 0.5);
+        const sy = num(src!, "y", 0.5);
+        const sz = num(src!, "z", 0.5);
+        return lightSourceWorldPosition(piece, { x: sx, y: sy, z: sz });
+      });
+      let start = worldPts[0]!;
+      let end = worldPts[0]!;
+      let maxD = -1;
+      for (let i = 0; i < worldPts.length; i++) {
+        for (let j = i + 1; j < worldPts.length; j++) {
+          const a = worldPts[i]!;
+          const b = worldPts[j]!;
+          const d = Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
+          if (d > maxD) {
+            maxD = d;
+            start = a;
+            end = b;
+          }
+        }
+      }
+      const firstSrc = sources[0]!;
+      const colorRaw = attr(firstSrc, "color");
+      const color = colorRaw
+        ? argbIntToHex(Number.parseInt(colorRaw, 10))
+        : "#ffffff";
+      const diameter = attr(firstSrc, "diameter") ? num(firstSrc, "diameter") : undefined;
+      const room = findRoomForPoint(ir, { x: start.x, y: start.y }, levelId);
+      const fixture: LightFixtureIR = {
+        id: fixtureId(lightId, name, levelId, 0, start),
+        name,
+        levelId,
+        roomId: room?.id,
+        position: start,
+        end,
+        kind: "strip",
+        samples: Math.min(16, Math.max(4, sources.length * 2)),
+        color,
+        power,
+        diameter,
+      };
+      ir.fixtures.push(fixture);
+      points.push(start, end);
+      continue;
+    }
 
     list.forEach((src, sourceIndex) => {
       const sx = src ? num(src, "x", 0.5) : 0.5;
@@ -293,6 +343,7 @@ export function parseHomeXml(xml: string, fileName = "Home.xml"): FloorplanIR {
         color,
         power,
         diameter,
+        kind: "point",
       };
       ir.fixtures.push(fixture);
       points.push(position);

@@ -1,6 +1,11 @@
 node_modules/
 dist/
 dist-types/
+dev-dist/
+dev/public/local/lighting_renders/
+dev/public/local/floorplan/glb/
+dev/public/local/floorplan/*.dxf
+dev/public/local/floorplan/*-preview.jpg
 *.log
 .DS_Store
 coverage/
@@ -13,3 +18,4 @@ tests/fixtures/sweethome3d/*.sh3d
 tests/fixtures/renders/
 *.png
 !docs/**/*.png
+*.glb

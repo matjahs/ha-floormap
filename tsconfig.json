@@ -20,6 +20,6 @@
     "sourceMap": true,
     "types": ["vitest/globals", "node"]
   },
-  "include": ["src/**/*.ts", "tests/**/*.ts", "vite.config.ts"],
-  "exclude": ["node_modules", "dist", "dist-types", "cli"]
+  "include": ["src/**/*.ts", "tests/**/*.ts", "dev/**/*.ts", "vite.config.ts", "vite.playground.config.ts"],
+  "exclude": ["node_modules", "dist", "dist-types", "dev-dist", "cli"]
 }

@@ -1,6 +1,9 @@
 import type { BBox, Vec2, Vec3 } from "../types";
 
-export const IR_SCHEMA_VERSION = 1 as const;
+export const IR_SCHEMA_VERSION = 2 as const;
+
+/** Accepted on load; v1 fixtures are treated as point lights. */
+export type IrSchemaVersion = 1 | 2;
 
 export interface LevelIR {
   id: string;
@@ -17,6 +20,14 @@ export interface WallIR {
   end: Vec2;
   height?: number;
   thickness: number;
+  /** Optional Floorplanner side finishes. */
+  leftColor?: string;
+  rightColor?: string;
+  leftTexture?: string;
+  rightTexture?: string;
+  /** Texture tile size in plan cm. */
+  tileWidthCm?: number;
+  tileHeightCm?: number;
 }
 
 export interface RoomIR {
@@ -25,6 +36,10 @@ export interface RoomIR {
   name?: string;
   polygon: Vec2[];
   areaHint?: string;
+  color?: string;
+  floorTexture?: string;
+  tileWidthCm?: number;
+  tileHeightCm?: number;
 }
 
 export interface OpeningIR {
@@ -35,6 +50,10 @@ export interface OpeningIR {
   width: number;
   height: number;
   angle: number;
+  /** Optional GLB for door/window frame (Floorplanner slice). */
+  meshUrl?: string;
+  /** Black aluminium + glass (windows, or specific interior glass door). */
+  glazed?: boolean;
 }
 
 export interface FurnitureIR {
@@ -46,6 +65,10 @@ export interface FurnitureIR {
   depth?: number;
   height?: number;
   angle?: number;
+  /** Optional textured mesh (Floorplanner item GLB). */
+  meshUrl?: string;
+  /** Floorplanner mirror flags [x, y]. */
+  mirrored?: [number, number];
 }
 
 export interface LightFixtureIR {
@@ -57,6 +80,12 @@ export interface LightFixtureIR {
   color: string;
   power: number;
   diameter?: number;
+  /** Default point. Strip uses position→end with sampled lights in live3d. */
+  kind?: "point" | "strip";
+  /** Strip endpoint in plan cm (start = position). */
+  end?: Vec3;
+  /** live3d sample count along strip (default 8). */
+  samples?: number;
 }
 
 export type CameraLens = "PINHOLE" | "NORMAL" | "FISHEYE" | "SPHERICAL";
@@ -87,6 +116,11 @@ export interface EnvironmentIR {
   photoWidth?: number;
   photoHeight?: number;
   photoAspectRatio?: string;
+  /**
+   * Floorplanner-style 3D section wall height (cm). When set, live3d extrudes
+   * walls to this height so side textures remain visible from above.
+   */
+  wallSectionHeight?: number;
 }
 
 export type SourceKind =
@@ -98,7 +132,7 @@ export type SourceKind =
   | "obj";
 
 export interface FloorplanIR {
-  schemaVersion: typeof IR_SCHEMA_VERSION;
+  schemaVersion: IrSchemaVersion;
   source: {
     kind: SourceKind;
     file: string;
@@ -145,9 +179,10 @@ export function assertIR(value: unknown): FloorplanIR {
     throw new Error("FloorplanIR: expected an object");
   }
   const ir = value as FloorplanIR;
-  if (ir.schemaVersion !== IR_SCHEMA_VERSION) {
+  const v = ir.schemaVersion as number;
+  if (v !== 1 && v !== 2) {
     throw new Error(
-      `FloorplanIR: unsupported schemaVersion ${String(ir.schemaVersion)} (expected ${IR_SCHEMA_VERSION})`,
+      `FloorplanIR: unsupported schemaVersion ${String(ir.schemaVersion)} (expected 1|2)`,
     );
   }
   if (!ir.source?.kind || !ir.source?.file) {
@@ -156,7 +191,8 @@ export function assertIR(value: unknown): FloorplanIR {
   if (!Array.isArray(ir.fixtures) || !Array.isArray(ir.cameras)) {
     throw new Error("FloorplanIR: fixtures and cameras must be arrays");
   }
-  return ir;
+  // Normalize to current schema version; v1 fixtures remain point lights.
+  return { ...ir, schemaVersion: IR_SCHEMA_VERSION };
 }
 
 export function computeBounds(points: Vec3[]): BBox {

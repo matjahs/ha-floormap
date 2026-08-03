@@ -108,7 +108,35 @@ export class SunflowFloorplanCardEditor extends LitElement implements LovelaceCa
   }
 
   private _setEntity(fixtureId: string, entity: string): void {
-    const entities = { ...(this._config.entities ?? {}), [fixtureId]: { entity } };
+    const prev = this._config.entities?.[fixtureId] ?? { entity: "" };
+    const entities = {
+      ...(this._config.entities ?? {}),
+      [fixtureId]: { ...prev, entity },
+    };
+    this._emit({ ...this._config, entities });
+  }
+
+  private _setGroup(fixtureId: string, group: string): void {
+    const prev = this._config.entities?.[fixtureId] ?? { entity: "" };
+    const entities = {
+      ...(this._config.entities ?? {}),
+      [fixtureId]: { ...prev, group: group || undefined },
+    };
+    this._emit({ ...this._config, entities });
+  }
+
+  private _setTapAction(fixtureId: string, action: string): void {
+    const prev = this._config.entities?.[fixtureId] ?? { entity: "" };
+    const tap_action =
+      action === "toggle" || !action
+        ? undefined
+        : action === "more-info"
+          ? { action: "more-info" as const }
+          : { action: "none" as const };
+    const entities = {
+      ...(this._config.entities ?? {}),
+      [fixtureId]: { ...prev, tap_action },
+    };
     this._emit({ ...this._config, entities });
   }
 
@@ -216,6 +244,8 @@ export class SunflowFloorplanCardEditor extends LitElement implements LovelaceCa
               <th>Room</th>
               <th>Suggestion</th>
               <th>Entity</th>
+              <th>Group</th>
+              <th>Tap</th>
             </tr>
           </thead>
           <tbody>
@@ -238,11 +268,55 @@ export class SunflowFloorplanCardEditor extends LitElement implements LovelaceCa
                       placeholder="light.…"
                     />
                   </td>
+                  <td>
+                    <input
+                      .value=${this._config.entities?.[m.fixtureId]?.group ?? ""}
+                      @change=${(ev: Event) =>
+                        this._setGroup(m.fixtureId, (ev.target as HTMLInputElement).value)}
+                      placeholder="kitchen"
+                      style="width:6rem"
+                    />
+                  </td>
+                  <td>
+                    <select
+                      @change=${(ev: Event) =>
+                        this._setTapAction(m.fixtureId, (ev.target as HTMLSelectElement).value)}
+                    >
+                      <option
+                        value="toggle"
+                        ?selected=${!this._config.entities?.[m.fixtureId]?.tap_action ||
+                        this._config.entities?.[m.fixtureId]?.tap_action?.action === "toggle"}
+                      >
+                        toggle
+                      </option>
+                      <option
+                        value="more-info"
+                        ?selected=${this._config.entities?.[m.fixtureId]?.tap_action?.action ===
+                        "more-info"}
+                      >
+                        more-info
+                      </option>
+                      <option
+                        value="none"
+                        ?selected=${this._config.entities?.[m.fixtureId]?.tap_action?.action ===
+                        "none"}
+                      >
+                        none
+                      </option>
+                    </select>
+                  </td>
                 </tr>
               `,
             )}
           </tbody>
         </table>
+        <p class="hint">
+          Groups: set the same group id on fixtures. With <code>edit_mode: true</code>, use
+          <strong>Draw tap area</strong> on the card (select a group chip, click the map) or
+          set <code>groups.NAME.tap_area</code> in YAML. Optional
+          <code>groups.NAME.entity</code> for a master toggle. Hold on a marker = more-info
+          (default). Strips: set <code>segments</code> on the entity entry.
+        </p>
       </div>
     `;
   }
@@ -264,13 +338,41 @@ export class SunflowFloorplanCardEditor extends LitElement implements LovelaceCa
                 },
               })}
           >
-            <option value="baked" ?selected=${(this._config.render?.mode ?? "baked") === "baked"}>
-              baked
+            <option value="baked" ?selected=${this._config.render?.mode === "baked"}>
+              baked (SunFlow overlays)
             </option>
-            <option value="live3d" ?selected=${this._config.render?.mode === "live3d"}>
-              live3d
+            <option
+              value="live3d"
+              ?selected=${(this._config.render?.mode ?? "live3d") === "live3d"}
+            >
+              live3d (plan mesh)
             </option>
           </select>
+        </label>
+        <label>
+          <input
+            type="checkbox"
+            .checked=${!!this._config.edit_mode}
+            @change=${(ev: Event) =>
+              this._emit({
+                ...this._config,
+                edit_mode: (ev.target as HTMLInputElement).checked,
+              })}
+          />
+          Allow Edit lights (drag in live3d)
+        </label>
+        <label>
+          Placements URL
+          <input
+            type="text"
+            .value=${this._config.placements ?? ""}
+            placeholder="/local/floorplan/placements.json"
+            @change=${(ev: Event) =>
+              this._emit({
+                ...this._config,
+                placements: (ev.target as HTMLInputElement).value || undefined,
+              })}
+          />
         </label>
         <label>
           Exposure
@@ -290,10 +392,17 @@ export class SunflowFloorplanCardEditor extends LitElement implements LovelaceCa
         </label>
         ${Object.keys(entities).map((id) => {
           const fx = this._ir?.fixtures.find((f) => f.id === id);
+          const o = this._config.overrides?.[id];
           let markerNote = "";
           if (fx && cam) {
-            const pct = projectToPercent(cam, fx.position, { aspect: 720 / 405 });
+            const pose = o?.position
+              ? { x: o.position[0], y: o.position[1], z: o.position[2] }
+              : fx.position;
+            const pct = projectToPercent(cam, pose, { aspect: 720 / 405 });
             markerNote = `proj ${pct.left.toFixed(1)}%, ${pct.top.toFixed(1)}%`;
+            if (o?.position) {
+              markerNote += ` · pos [${o.position.map((n) => n.toFixed(0)).join(", ")}]`;
+            }
           }
           return html`
             <div class="tune-row">
