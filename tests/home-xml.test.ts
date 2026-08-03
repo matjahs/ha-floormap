@@ -11,7 +11,7 @@ const xml = readFileSync(
 describe("Home.xml parsing", () => {
   it("parses levels, rooms, walls, cameras, fixtures", () => {
     const ir = parseHomeXml(xml, "Home.xml");
-    expect(ir.schemaVersion).toBe(1);
+    expect(ir.schemaVersion).toBe(2);
     expect(ir.source.kind).toBe("sweethome3d");
     expect(ir.levels).toHaveLength(1);
     expect(ir.levels[0]?.name).toBe("10th_floor");

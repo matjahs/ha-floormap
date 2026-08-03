@@ -1,9 +1,12 @@
 type: custom:sunflow-floorplan-card
 title: Floorplan
 manifest: /local/floorplan/manifest.json
+placements: /local/floorplan/placements.json
+edit_mode: false
 render:
-  mode: baked
+  mode: live3d
   tone_map: aces
   exposure: 1.0
   gamma: 2.2
   transition: 400
+  ambient: sun

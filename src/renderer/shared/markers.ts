@@ -5,6 +5,16 @@ import { handleAction, hasAction } from "custom-card-helpers";
 import type { ActionConfig } from "custom-card-helpers";
 import type { MarkerState } from "../../types";
 
+export function isDefaultToggleAction(
+  config: { tap_action?: ActionConfig } | undefined,
+): boolean {
+  const a = config?.tap_action;
+  if (!a) {
+    return true;
+  }
+  return a.action === "toggle";
+}
+
 export function renderMarkers(
   hass: HomeAssistant | undefined,
   markers: MarkerState[],
@@ -39,6 +49,17 @@ export function renderMarkers(
             m.entity,
             m.fixtureId,
           );
+        }}
+        @dblclick=${(ev: Event) => {
+          ev.stopPropagation();
+          ev.preventDefault();
+          if (hasAction(act.double_tap)) {
+            onAction(
+              { detail: { action: "double_tap" } } as ActionHandlerEvent,
+              m.entity,
+              m.fixtureId,
+            );
+          }
         }}
         @contextmenu=${(ev: Event) => {
           ev.preventDefault();

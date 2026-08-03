@@ -28,6 +28,20 @@ depend on SweetHome3DJS (GPL).
 
 This repository never writes to your HA `/config`. You copy assets yourself.
 
+## Local playground (debug without HA)
+
+Run the card in the browser with a mock `hass` and your SunFlow overlays / IR:
+
+```bash
+npm run playground:sync   # once: copy overlays + manifest from HA into dev/public
+npm run playground         # http://localhost:5173
+```
+
+- Default playground mode is **live3d** with **Edit lights** enabled.
+- Drag yellow handles, then **Export placements** → deploy `placements.json` to `/config/www/floorplan/`.
+- Overlays load from `dev/public/local/…` when synced; otherwise Vite proxies `/local` to
+  `HA_PROXY` (default `http://homeassistant.local:8123`).
+
 ## SweetHome3D export
 
 1. Open your apartment in SweetHome3D **6+** and **Save** (ensures `Home.xml` inside the `.sh3d` ZIP).
@@ -98,20 +112,56 @@ floors:
   - level: ground
     camera: stored_1
     base_image: /local/lighting_renders/selected_lights_on_SunFlow.png
+groups:
+  living:
+    entity: light.livingroom_group   # optional master for bulk toggle
+    tap_action: { action: toggle }
+    tap_area: [[40, 45], [70, 45], [70, 75], [40, 75]]  # stage % polygon
 entities:
   fixture_dining_table:
     entity: light.livingroom_light_1
+    group: living
     overlay: 1_Dining_Table_on_SunFlow.png
+    tap_action: { action: toggle }   # also hold_action / double_tap_action
+  fixture_kitchen_led:
+    entity: light.kitchen_ledstrip_1
+    group: kitchen
+    segments:                        # LED bar ranges along strip 0..1
+      - entity: light.kitchen_led_a
+        start: 0
+        end: 0.5
 overrides:
   fixture_dining_table:
     gain: 1.2
     marker: [52, 58]     # optional nudge (left%, top%)
+  fixture_kitchen_led:
+    kind: strip
+    position: [1.2, 0.1, 3.0]
+    end: [2.8, 0.1, 3.0]
+    samples: 8
 ```
 
 See `examples/` for minimal, Waalbandijk ground floor (`examples/ground-floor.yaml` /
 `examples/generated/`), and two-floor stubs. The generated Waalbandijk config is derived
 from **`waalbandijk_2024.sh3d`** (stable fixture IDs + hand-placed markers).
 
+With `edit_mode: true`, the card offers **Draw tap area** (pick a group chip, click the
+stage to place polygon vertices, Finish).
+
+### Floorplanner FML (live3d dollhouse)
+
+Export from Floorplanner (project **Download** / ZIP includes `.fml`, or `*.json.fml`).
+Point the card at the FML and a folder of furniture GLBs:
+
+```yaml
+fml: /local/floorplan/waalbandijk.fml.json
+fml_assets: /local/floorplan/glb          # {refid}.glb + opening-{id}.glb
+fml_glb_map: /local/floorplan/waalbandijk.glb-map.json  # optional refid→URL
+```
+
+live3d then uses FML walls/rooms/furniture meshes (textured GLBs) while keeping light
+fixtures from the SweetHome3D `manifest` IR. DXF export is supported via the existing
+importer; the ZIP package is FML + preview JPG (not a single scene GLB).
 ### Migration
 
 ```bash
@@ -123,8 +173,9 @@ and omitted from the live `entities` map.
 
 ## IR schema
 
-Versioned JSON (`schemaVersion: 1`) documented in code: `src/import/ir.ts`. Adapters:
-SweetHome3D (primary), DXF, SVG, glTF/OBJ (geometry + manual fixtures), FML (stub).
+Versioned JSON (`schemaVersion: 2`) documented in code: `src/import/ir.ts` (accepts 1|2).
+Adapters: SweetHome3D (primary; long multi-source lights become `kind: strip`), DXF, SVG,
+glTF/OBJ (geometry + manual fixtures), FML (stub).
 
 ## Development
 

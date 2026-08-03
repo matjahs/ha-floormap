@@ -1,0 +1,50 @@
+{
+  "13518": {
+    "name": "Greek texture 2",
+    "color": "#ffffff",
+    "widthCm": 100,
+    "heightCm": 100,
+    "texture": "/local/floorplan/textures/Greek_texture_22.jpg",
+    "className": "stone"
+  },
+  "13821": {
+    "name": "68 Rustic Bricks",
+    "color": "#B09178",
+    "widthCm": 65,
+    "heightCm": 62,
+    "texture": "/local/floorplan/textures/68_Rustic_Bricks_DIFF.jpg",
+    "className": "stone"
+  },
+  "14769": {
+    "name": "Vinyl vloer-1305 Nimbus",
+    "color": "#ffffff",
+    "widthCm": 30,
+    "heightCm": 30,
+    "texture": "/local/floorplan/textures/130533-texture.jpg",
+    "className": "wood"
+  },
+  "rs-13518": {
+    "name": "Greek texture 2",
+    "color": "#ffffff",
+    "widthCm": 100,
+    "heightCm": 100,
+    "texture": "/local/floorplan/textures/Greek_texture_22.jpg",
+    "className": "stone"
+  },
+  "rs-13821": {
+    "name": "68 Rustic Bricks",
+    "color": "#B09178",
+    "widthCm": 65,
+    "heightCm": 62,
+    "texture": "/local/floorplan/textures/68_Rustic_Bricks_DIFF.jpg",
+    "className": "stone"
+  },
+  "rs-14769": {
+    "name": "Vinyl vloer-1305 Nimbus",
+    "color": "#ffffff",
+    "widthCm": 30,
+    "heightCm": 30,
+    "texture": "/local/floorplan/textures/130533-texture.jpg",
+    "className": "wood"
+  }
+}

@@ -8,9 +8,9 @@ export function validateConfig(config: unknown): SunflowFloorplanCardConfig {
   if (!cfg.type) {
     throw new Error("Invalid configuration: missing type");
   }
-  if (!cfg.manifest && !cfg.ir && !cfg.renders && !cfg.entities) {
+  if (!cfg.manifest && !cfg.ir && !cfg.renders && !cfg.entities && !cfg.fml) {
     throw new Error(
-      "Invalid configuration: provide manifest, or inline ir/renders/entities",
+      "Invalid configuration: provide manifest, fml, or inline ir/renders/entities",
     );
   }
   if (cfg.render?.mode && cfg.render.mode !== "baked" && cfg.render.mode !== "live3d") {
@@ -27,6 +27,37 @@ export function validateConfig(config: unknown): SunflowFloorplanCardConfig {
       if (!ent?.entity) {
         throw new Error(`entities.${id}: missing entity`);
       }
+      if (ent.segments) {
+        if (!Array.isArray(ent.segments)) {
+          throw new Error(`entities.${id}.segments must be an array`);
+        }
+        for (let i = 0; i < ent.segments.length; i++) {
+          const seg = ent.segments[i]!;
+          if (!seg?.entity) {
+            throw new Error(`entities.${id}.segments[${i}]: missing entity`);
+          }
+          if (typeof seg.start !== "number" || typeof seg.end !== "number") {
+            throw new Error(`entities.${id}.segments[${i}]: start/end must be numbers`);
+          }
+          if (seg.start < 0 || seg.start > 1 || seg.end < 0 || seg.end > 1) {
+            throw new Error(`entities.${id}.segments[${i}]: start/end must be in [0,1]`);
+          }
+        }
+      }
+    }
+  }
+  if (cfg.groups) {
+    for (const [id, g] of Object.entries(cfg.groups)) {
+      if (g.tap_area !== undefined) {
+        if (!Array.isArray(g.tap_area) || g.tap_area.length < 3) {
+          throw new Error(`groups.${id}.tap_area must be a polygon of ≥3 [left%, top%] points`);
+        }
+        for (const pt of g.tap_area) {
+          if (!Array.isArray(pt) || pt.length !== 2 || pt.some((n) => typeof n !== "number")) {
+            throw new Error(`groups.${id}.tap_area points must be [left%, top%]`);
+          }
+        }
+      }
     }
   }
   if (cfg.overrides) {
@@ -34,7 +65,31 @@ export function validateConfig(config: unknown): SunflowFloorplanCardConfig {
       if (o.marker && (!Array.isArray(o.marker) || o.marker.length !== 2)) {
         throw new Error(`overrides.${id}.marker must be [left%, top%]`);
       }
+      if (o.position) {
+        if (
+          !Array.isArray(o.position) ||
+          o.position.length !== 3 ||
+          o.position.some((n) => typeof n !== "number" || !Number.isFinite(n))
+        ) {
+          throw new Error(`overrides.${id}.position must be [x, y, z] plan cm`);
+        }
+      }
+      if (o.end) {
+        if (
+          !Array.isArray(o.end) ||
+          o.end.length !== 3 ||
+          o.end.some((n) => typeof n !== "number" || !Number.isFinite(n))
+        ) {
+          throw new Error(`overrides.${id}.end must be [x, y, z] plan cm`);
+        }
+      }
+      if (o.kind && o.kind !== "point" && o.kind !== "strip") {
+        throw new Error(`overrides.${id}.kind must be point|strip`);
+      }
     }
+  }
+  if (cfg.placements !== undefined && typeof cfg.placements !== "string") {
+    throw new Error("placements must be a URL string");
   }
   return cfg;
 }
@@ -44,13 +99,14 @@ export function stubConfig(): SunflowFloorplanCardConfig {
     type: "custom:sunflow-floorplan-card",
     title: "Floorplan",
     render: {
-      mode: "baked",
+      mode: "live3d",
       tone_map: "aces",
       exposure: 1,
       gamma: 2.2,
       transition: 400,
-      ambient: "off",
+      ambient: "sun",
     },
+    edit_mode: false,
     entities: {},
   };
 }

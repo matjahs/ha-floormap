@@ -1,26 +1,23 @@
-# Generated from waalbandijk_2024.sh3d IR (primary model).
-# Source file: waalbandijk_2024.sh3d (re-import if you update the model).
-# Markers are hand-placed from the previous picture-elements card.
-# Camera projection is not yet calibrated to the SunFlow plate.
+# Primary live3d dashboard card (Waalbandijk 2024 IR).
+# Positions come from IR; optional /local/floorplan/placements.json overrides.
+# Set edit_mode: true to drag lights on the card (YAML dashboards: export placements.json).
 #
-# TODO: dead entities (do not enable until replaced):
-# - light.kitchen_ledstrip_2 → 6_light_kitchen_3_on_SunFlow.png @ top 48% left 67% (SH3D light_kitchen_3, light_light-82daac96-955d-481f-a387-80dad1df596e)
-# - light.livingroom_light_2 → 7_light_living_room_2_on_SunFlow.png @ top 60% left 40% (SH3D light_living_room_2, light_light-b49f096c-5f12-403a-ac35-85992a5dfcec)
+# Groups: membership on entities + optional groups.NAME with HA entity and/or tap_area polygon.
+# Actions: tap_action / hold_action / double_tap_action (defaults: toggle / more-info / more-info).
+# Strips: IR kind strip + optional segments with [0,1] fractions along the bar.
 #
-# Missing from this model (present in bak / service_hatch):
-# - light_living_room_1 → light.livingroom_light_1 (1_Dining_Table_on_SunFlow.png)
-#
-# Extra fixtures in model not wired to overlays:
-# - White light source (light_light-f4d1b87e-5c6d-42b9-9440-2ae798d0eb48)
-# - light_bedroom_2 (light_light-818c4f60-ff35-430a-a700-a5b0a2c10521)
-# - light_office_2 (light_light-04ba7050-9835-4666-a908-fe0276383f58)
-# - light_bathroom_1 (light_light-f32721ba-0e6b-4920-845b-ccbd088fed00)
-# - Light panel (light_light-86a263c2-294e-4e53-8988-bc469d353cf8)
+# Baked SunFlow path: see examples/baked-sunflow.yaml
 type: custom:sunflow-floorplan-card
 title: Waalbandijk 469 — Level 10
 manifest: /local/floorplan/manifest.json
+placements: /local/floorplan/placements.json
+# Floorplanner dollhouse mesh (walls/furniture GLBs); lights still from SH3D manifest IR
+fml: /local/floorplan/waalbandijk.fml.json
+fml_assets: /local/floorplan/glb
+fml_glb_map: /local/floorplan/waalbandijk.glb-map.json
+edit_mode: true
 render:
-  mode: baked
+  mode: live3d
   tone_map: aces
   exposure: 1.0
   gamma: 2.2
@@ -28,52 +25,62 @@ render:
   ambient: sun
 floors:
   - level: level-4fe4dcaf-d703-4406-a96f-c61e37dc9774
-    camera: top
-    base_image: /local/lighting_renders/selected_lights_on_SunFlow.png
+    camera: Bird View
+groups:
+  kitchen:
+    # Optional HA light group / master for chip + tap_area actions
+    # entity: light.kitchen
+    tap_action:
+      action: toggle
+    # Stage % polygon — tap empty floor in this region to toggle the group
+    tap_area:
+      - [35, 35]
+      - [55, 35]
+      - [55, 55]
+      - [35, 55]
+  living:
+    tap_action:
+      action: toggle
 entities:
   light_light-bb6f3724-d66f-4ed3-96c0-5c58b291f010:
     entity: light.hallway_1_light
-    overlay: 3_light_hallway_1_on_SunFlow.png  # light_hallway_1
   light_light-09aa8e87-fd5a-4a69-9a7c-6f307e5bf016:
     entity: light.hallway_2_light
-    overlay: 4_light_hallway_2_on_SunFlow.png  # light_hallway_2
   light_light-61dde89b-428f-4267-afce-8b74ca5805d7:
     entity: light.kitchen_light_1
-    overlay: 5_light_kitchen_1_on_SunFlow.png  # light_kitchen_1
+    group: kitchen
+    tap_action:
+      action: toggle
+    hold_action:
+      action: more-info
+  # Example strip with two WLED-style segments (fixture must be kind: strip in IR/overrides)
+  light_light-82daac96-955d-481f-a387-80dad1df596e:
+    entity: light.kitchen_led_strip
+    group: kitchen
+    segments:
+      - entity: light.kitchen_led_strip_left
+        start: 0.0
+        end: 0.5
+      - entity: light.kitchen_led_strip_right
+        start: 0.5
+        end: 1.0
   light_light-0132dd10-e80e-4d30-af07-a924d762af8e:
     entity: light.livingroom_light_3
-    overlay: 8_light_living_room_3_on_SunFlow.png  # light_living_room_3
+    group: living
   light_light-bd58bf5c-2f47-4635-9c62-9bf0bb5bfb2c:
     entity: light.livingroom_light_5
-    overlay: 9_light_living_room_4_on_SunFlow.png  # light_living_room_4
+    group: living
   light_light-6c843e68-6d03-4eb4-8989-0503a0c98294:
     entity: light.shelly_toilet_output_0
-    overlay: 10_light_toilet_1_on_SunFlow.png  # light_toilet_1
   light_light-f0faa71c-51bc-4e18-b4b9-4df94e30b994:
     entity: light.utility_room_1_light_3
-    overlay: 11_light_utility_room_1_on_SunFlow.png  # light_utility_room_1
   light_light-0db573a3-ff6d-4dd2-86ff-dc079dfd45db:
     entity: light.bedroom_1_light
-    overlay: 12_lights_bedroom_on_SunFlow.png  # light_bedroom_1
   light_light-713e3443-e82b-4124-8d2a-a06ce6bee094:
     entity: light.office_light_1
-    overlay: 13_lights_office_on_SunFlow.png  # light_office_1
 overrides:
-  light_light-bb6f3724-d66f-4ed3-96c0-5c58b291f010:
-    marker: [45, 40]
-  light_light-09aa8e87-fd5a-4a69-9a7c-6f307e5bf016:
-    marker: [50, 44]
-  light_light-61dde89b-428f-4267-afce-8b74ca5805d7:
-    marker: [63, 52]
-  light_light-0132dd10-e80e-4d30-af07-a924d762af8e:
-    marker: [47, 63]
-  light_light-bd58bf5c-2f47-4635-9c62-9bf0bb5bfb2c:
-    marker: [52, 66]
-  light_light-6c843e68-6d03-4eb4-8989-0503a0c98294:
-    marker: [35, 35]
-  light_light-f0faa71c-51bc-4e18-b4b9-4df94e30b994:
-    marker: [20, 40]
-  light_light-0db573a3-ff6d-4dd2-86ff-dc079dfd45db:
-    marker: [75, 25]
-  light_light-713e3443-e82b-4124-8d2a-a06ce6bee094:
-    marker: [65, 20]
+  light_light-82daac96-955d-481f-a387-80dad1df596e:
+    kind: strip
+    position: [900, 1100, 100]
+    end: [1200, 1100, 100]
+    samples: 8

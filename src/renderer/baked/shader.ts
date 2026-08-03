@@ -9,6 +9,26 @@ void main() {
 }
 `;
 
+/** Unroll light accumulation so sampler2D array indices are constant (WebGL2 / ANGLE). */
+function unrolledLightPass(maxLights: number): string {
+  const lines: string[] = [];
+  for (let i = 0; i < maxLights; i++) {
+    lines.push(`  if (uCount > ${i}) {
+    {
+      vec3 sampleS = texture(uCi[${i}], vUv).rgb;
+      vec3 Ci;
+      if (uDifferenceBaked == 1) {
+        Ci = srgbToLinear(sampleS);
+      } else {
+        Ci = max(srgbToLinear(sampleS) - srgbToLinear(baseS), vec3(0.0));
+      }
+      L += Ci * uIntensity[${i}] * uColor[${i}];
+    }
+  }`);
+  }
+  return lines.join("\n");
+}
+
 export function makeAccumulateFrag(maxLights: number): string {
   return `#version 300 es
 precision highp float;
@@ -52,17 +72,7 @@ vec3 aces(vec3 x) {
 void main() {
   vec3 baseS = texture(uBase, vUv).rgb;
   vec3 L = srgbToLinear(baseS);
-  for (int i = 0; i < ${maxLights}; i++) {
-    if (i >= uCount) break;
-    vec3 sampleS = texture(uCi[i], vUv).rgb;
-    vec3 Ci;
-    if (uDifferenceBaked == 1) {
-      Ci = srgbToLinear(sampleS);
-    } else {
-      Ci = max(srgbToLinear(sampleS) - srgbToLinear(baseS), vec3(0.0));
-    }
-    L += Ci * uIntensity[i] * uColor[i];
-  }
+${unrolledLightPass(maxLights)}
   L *= uExposure;
   vec3 mapped;
   if (uToneMap == 1) {

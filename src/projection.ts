@@ -46,6 +46,17 @@ export function planToRender(p: Vec3): Vec3 {
 export function cameraEyeTarget(cam: CameraIR): { eye: Vec3; target: Vec3; up: Vec3 } {
   const pitchCos = Math.cos(cam.pitch);
   const eye: Vec3 = { x: cam.x, y: cam.z, z: cam.y };
+  // Near-vertical SH3D cameras (pitch ≈ ±π/2) produce a lookAt only ~1cm below
+  // the eye — useless for OrbitControls and unstable for projection. Aim at the
+  // floor under the camera instead, with a tiny X nudge to avoid polar=0.
+  if (Math.abs(Math.sin(cam.pitch)) > 0.95) {
+    const nudgedEye = { x: eye.x + Math.max(10, eye.y * 0.02), y: eye.y, z: eye.z };
+    return {
+      eye: nudgedEye,
+      target: { x: eye.x, y: 0, z: eye.z },
+      up: { x: 0, y: 1, z: 0 },
+    };
+  }
   const target: Vec3 = {
     x: cam.x - Math.sin(cam.yaw) * pitchCos,
     y: cam.z - Math.sin(cam.pitch),

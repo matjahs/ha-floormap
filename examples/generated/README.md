@@ -4,16 +4,18 @@ Primary model: `waalbandijk_2024.sh3d`
 
 ## Files
 
-- `waalbandijk_2024.yaml` — Lovelace card config (also copied to `examples/ground-floor.yaml`)
+- `waalbandijk_2024.yaml` — live3d Lovelace card (also [`examples/ground-floor.yaml`](../ground-floor.yaml))
+- `waalbandijk_2024.baked.yaml` / [`examples/baked-sunflow.yaml`](../baked-sunflow.yaml) — previous baked overlays path
 - `waalbandijk_2024.manifest.json` — IR + render paths for `/local/floorplan/manifest.json`
-- `tests/fixtures/sweethome3d/waalbandijk_2024.ir.json` — IR snapshot for tests
+- Deploy empty or edited `placements.json` to `/local/floorplan/placements.json` for pose overrides
 
 ## Install onto Home Assistant
 
 1. Build and install the card (`npm run build`, copy `dist/` to `/config/www/`).
 2. Copy `waalbandijk_2024.manifest.json` to `/config/www/floorplan/manifest.json`.
-3. Keep overlays under `/local/lighting_renders/` (paths in the manifest already use that prefix).
-4. Add a dashboard card using `waalbandijk_2024.yaml` (or edit in UI).
+3. Add `placements.json` (start with `{}`) under `/config/www/floorplan/`.
+4. Use live3d card YAML from `waalbandijk_2024.yaml` / `ground-floor.yaml`.
+5. Optional: playground `Edit lights` → Export placements → copy to HA.
 
 ## Re-import after model changes
 
@@ -22,5 +24,3 @@ node dist/cli/import.js import /path/to/waalbandijk_2024.sh3d --out /tmp/floorpl
   --base /path/to/selected_lights_on_SunFlow.png \
   --passes-dir /path/to/lighting_renders
 ```
-
-Then regenerate this folder (or merge fixture IDs carefully so entity mapping stays stable).
