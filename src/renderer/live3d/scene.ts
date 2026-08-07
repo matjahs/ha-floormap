@@ -1,7 +1,6 @@
 import type { FloorplanIR, CameraIR } from "../../import/ir";
 import { pointInPolygon } from "../../import/ir";
 import type { LightParams, Vec3 } from "../../types";
-import { cameraEyeTarget } from "../../projection";
 import {
   resolveFixtureKind,
   resolveStripSamples,
@@ -29,8 +28,9 @@ export interface Live3dHandle {
   /** Move strip while preserving start→end vector (translate by delta from old start). */
   setStripPose(fixtureId: string, start: Vec3, end: Vec3): void;
   setCamera(cam: CameraIR): void;
-  /** Near-top-down framing for edit mode; restores prior view when cleared. */
+  /** No-op: view is always the locked miniature dollhouse framing. */
   setEditTopDown(enabled: boolean): void;
+  /** No-op: orbit is always disabled (fixed dollhouse camera). */
   setOrbitEnabled(enabled: boolean): void;
   setHandlesVisible(visible: boolean): void;
   /** Raycast floor plane; keeps Z elevation from current light or default. */
@@ -83,7 +83,6 @@ export async function createLive3dRenderer(
   opts: Live3dOptions = {},
 ): Promise<Live3dHandle> {
   const THREE = await import("three");
-  const { OrbitControls } = await import("three/examples/jsm/controls/OrbitControls.js");
 
   const renderer: WebGLRenderer = new THREE.WebGLRenderer({
     canvas,
@@ -93,45 +92,29 @@ export async function createLive3dRenderer(
   });
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 1;
+  renderer.toneMappingExposure = 0.85;
   // Top-down plan view: shadows add little and some three.js versions leave a
   // tiny SCISSOR_BOX after the shadow pass, so the plan never fills the canvas.
   renderer.shadowMap.enabled = false;
   renderer.setClearColor(0xe6e6e4, 1);
 
   const scene: Scene = new THREE.Scene();
-  // Floorplanner dollhouse void is light grey; keep it for top/bird cameras.
-  const isTopCamera = (cam?: CameraIR) =>
-    !!cam && (Math.abs(Math.sin(cam.pitch)) > 0.95 || /bird|top|dollhouse|floorplan/i.test(cam.name ?? ""));
-  scene.background = new THREE.Color(
-    isTopCamera(initialCamera ?? ir.cameras[0])
-      ? "#e6e6e4"
-      : (ir.environment.skyColor === "#000000" || ir.environment.skyColor === "#000"
-        ? "#1a1d24"
-        : (ir.environment.skyColor ?? "#1a1d24")),
-  );
+  // Locked miniature dollhouse: light grey void like Floorplanner.
+  scene.background = new THREE.Color("#e6e6e4");
 
   const camera: PerspectiveCamera = new THREE.PerspectiveCamera(50, 1, 1, 100000);
-  const controls = new OrbitControls(camera, canvas);
-  controls.enableDamping = true;
-  controls.enableRotate = true;
-  controls.screenSpacePanning = true;
-  // Allow a near-horizon tilt so exterior cladding stays readable while orbiting.
-  controls.maxPolarAngle = Math.PI * 0.72;
-  controls.minPolarAngle = 0.15;
-  controls.minDistance = 200;
-  controls.maxDistance = 20000;
+  const lookTarget = new THREE.Vector3();
 
-  // Neutral plan lighting (SH3D ambient is often a dark blue tint).
-  const amb = new THREE.AmbientLight(0xc8c4bc, 0.9);
+  // Dim base fill so “all lights off” reads as night; point lights carry the scene.
+  const amb = new THREE.AmbientLight(0xb8b4ac, 0.22);
   scene.add(amb);
 
-  const sun = new THREE.DirectionalLight(0xfff5ea, 0.7);
+  const sun = new THREE.DirectionalLight(0xfff5ea, 0.16);
   sun.position.set(600, 1100, 500);
-  sun.castShadow = true;
+  sun.castShadow = false;
   scene.add(sun);
 
-  const fill = new THREE.DirectionalLight(0xe8eef5, 0.35);
+  const fill = new THREE.DirectionalLight(0xe8eef5, 0.08);
   fill.position.set(-400, 600, -300);
   scene.add(fill);
 
@@ -843,64 +826,10 @@ export async function createLive3dRenderer(
     raycaster.setFromCamera(ndc, camera);
   };
 
-  const applyCamera = (cam: CameraIR) => {
-    // cameraEyeTarget already stabilizes top-down SH3D cameras (floor aim + nudge).
-    let { eye, target } = cameraEyeTarget(cam);
-    let fovRad = cam.fieldOfView;
-    // Match Floorplanner Bird View → Dollhouse (height 685 cm, FOV 52°).
-    if (isTopCamera(cam)) {
-      const minX = ir.bounds.min.x;
-      const maxX = ir.bounds.max.x;
-      const minZ = ir.bounds.min.y;
-      const maxZ = ir.bounds.max.y;
-      const cx = (minX + maxX) / 2;
-      const cz = (minZ + maxZ) / 2;
-      const span = Math.max(maxX - minX, maxZ - minZ) * 1.06;
-      const aspect = Math.max(0.5, camera.aspect || 16 / 9);
-      fovRad = (52 * Math.PI) / 180;
-      // ~36° from vertical — Floorplanner dollhouse, not a side elevation.
-      const polar = 0.63;
-      const azimuth = -0.75;
-      const elev = opts.levelElevation ?? 0;
-      const preferredHeight = 685;
-      const hFov = 2 * Math.atan(Math.tan(fovRad / 2) * aspect);
-      const fitDist = Math.max(
-        span / 2 / Math.tan(fovRad / 2),
-        span / 2 / Math.tan(hFov / 2),
-      );
-      // Prefer FP height; raise only when the full plan would not fit.
-      const dist = Math.max(preferredHeight / Math.cos(polar), fitDist * 0.95);
-      target = { x: cx, y: elev + 40, z: cz };
-      eye = {
-        x: cx + Math.sin(polar) * Math.cos(azimuth) * dist,
-        y: elev + Math.cos(polar) * dist,
-        z: cz + Math.sin(polar) * Math.sin(azimuth) * dist,
-      };
-      scene.background = new THREE.Color("#e6e6e4");
-      renderer.setClearColor(0xe6e6e4, 1);
-    }
-    camera.fov = (fovRad * 180) / Math.PI;
-    camera.up.set(0, 1, 0);
-    camera.position.set(eye.x, eye.y, eye.z);
-    controls.target.set(target.x, target.y, target.z);
-    camera.lookAt(target.x, target.y, target.z);
-    camera.updateProjectionMatrix();
-    controls.update();
-  };
-
-  let activeCamera: CameraIR | undefined = initialCamera ?? ir.cameras[0];
-  let editTopDown = false;
-  let savedView: {
-    x: number;
-    y: number;
-    z: number;
-    tx: number;
-    ty: number;
-    tz: number;
-    fov: number;
-  } | null = null;
-
-  const applyTopDownEditView = () => {
+  const applyDollhouseView = () => {
+    // Prefer Floorplanner "Bird View" XY (user-marked prior camera spot) and the
+    // high "floorplan" camera height when present — steeper miniature top-down,
+    // not the oblique corner orbit.
     const minX = ir.bounds.min.x;
     const maxX = ir.bounds.max.x;
     const minZ = ir.bounds.min.y;
@@ -909,49 +838,58 @@ export async function createLive3dRenderer(
     const cz = (minZ + maxZ) / 2;
     const span = Math.max(maxX - minX, maxZ - minZ) * 1.08;
     const aspect = Math.max(0.5, camera.aspect || 16 / 9);
-    const fovRad = (50 * Math.PI) / 180;
+    const bird = ir.cameras.find((c) => /bird\s*view/i.test(c.name ?? ""));
+    const floorCam = ir.cameras.find((c) => /^floorplan$/i.test(c.name ?? ""));
+    const fovRad = bird?.fieldOfView ?? floorCam?.fieldOfView ?? (52 * Math.PI) / 180;
     const hFov = 2 * Math.atan(Math.tan(fovRad / 2) * aspect);
     const fitDist = Math.max(
       span / 2 / Math.tan(fovRad / 2),
       span / 2 / Math.tan(hFov / 2),
     );
-    // Almost straight down — tiny tilt so floor markers keep depth cues.
-    const polar = 0.12;
-    const azimuth = -Math.PI / 2;
-    const dist = fitDist * 1.02;
+    // Bird View in FML is often stored at standing height; dollhouse needs the
+    // high floorplan altitude (or fit distance) so the whole plan is in frame.
     const elev = opts.levelElevation ?? 0;
-    const target = { x: cx, y: elev, z: cz };
+    const height = Math.max(
+      floorCam && floorCam.z > 400 ? floorCam.z : 0,
+      fitDist * 0.98,
+      1100,
+    );
+    // Ground projection of the prior camera (Bird View XY), falling back to center.
+    const baseX = bird?.x ?? floorCam?.x ?? cx;
+    const baseZ = bird?.y ?? floorCam?.y ?? cz;
+    // Slight tilt toward plan center so walls keep a touch of depth.
+    const polar = 0.22;
+    const toCx = cx - baseX;
+    const toCz = cz - baseZ;
+    const az = Math.hypot(toCx, toCz) > 1 ? Math.atan2(toCz, toCx) : -Math.PI / 2;
+    const horiz = Math.sin(polar) * height;
     const eye = {
-      x: cx + Math.sin(polar) * Math.cos(azimuth) * dist,
-      y: elev + Math.cos(polar) * dist,
-      z: cz + Math.sin(polar) * Math.sin(azimuth) * dist,
+      x: baseX - Math.cos(az) * horiz,
+      y: elev + Math.cos(polar) * height,
+      z: baseZ - Math.sin(az) * horiz,
     };
+    const target = { x: cx, y: elev + 35, z: cz };
     camera.fov = (fovRad * 180) / Math.PI;
     camera.up.set(0, 1, 0);
     camera.position.set(eye.x, eye.y, eye.z);
-    controls.target.set(target.x, target.y, target.z);
-    camera.lookAt(target.x, target.y, target.z);
+    lookTarget.set(target.x, target.y, target.z);
+    camera.lookAt(lookTarget);
     camera.updateProjectionMatrix();
-    controls.update();
     scene.background = new THREE.Color("#e6e6e4");
     renderer.setClearColor(0xe6e6e4, 1);
   };
 
+  const applyCamera = (_cam: CameraIR) => {
+    applyDollhouseView();
+  };
+
+  let activeCamera: CameraIR | undefined = initialCamera ?? ir.cameras[0];
+
   if (activeCamera) {
     applyCamera(activeCamera);
+  } else {
+    applyDollhouseView();
   }
-
-  let idleTimer = 0;
-  controls.addEventListener("start", () => {
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1) * 0.5);
-  });
-  controls.addEventListener("end", () => {
-    window.clearTimeout(idleTimer);
-    idleTimer = window.setTimeout(() => {
-      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-      renderer.render(scene, camera);
-    }, 150);
-  });
 
   const setStripPose = (fixtureId: string, start: Vec3, end: Vec3) => {
     const group = lights.get(fixtureId);
@@ -978,7 +916,7 @@ export async function createLive3dRenderer(
         return;
       }
       for (const pl of group) {
-        pl.intensity = params.on ? params.intensity * 800 : 0;
+        pl.intensity = params.on ? params.intensity * 1400 : 0;
         pl.color.setRGB(params.color[0], params.color[1], params.color[2]);
       }
       // Floor markers stay a fixed high-contrast style while editing.
@@ -994,7 +932,7 @@ export async function createLive3dRenderer(
         if (!params) {
           continue;
         }
-        pl.intensity = params.on ? params.intensity * 800 : 0;
+        pl.intensity = params.on ? params.intensity * 1400 : 0;
         pl.color.setRGB(params.color[0], params.color[1], params.color[2]);
       }
     },
@@ -1033,52 +971,13 @@ export async function createLive3dRenderer(
     setCamera(cam) {
       activeCamera = cam;
       applyCamera(cam);
-      if (editTopDown) {
-        applyTopDownEditView();
-      }
     },
-    setEditTopDown(enabled) {
-      if (enabled) {
-        if (!editTopDown) {
-          savedView = {
-            x: camera.position.x,
-            y: camera.position.y,
-            z: camera.position.z,
-            tx: controls.target.x,
-            ty: controls.target.y,
-            tz: controls.target.z,
-            fov: camera.fov,
-          };
-        }
-        editTopDown = true;
-        applyTopDownEditView();
-        return;
-      }
-      if (!editTopDown) {
-        return;
-      }
-      editTopDown = false;
-      if (savedView) {
-        camera.fov = savedView.fov;
-        camera.position.set(savedView.x, savedView.y, savedView.z);
-        controls.target.set(savedView.tx, savedView.ty, savedView.tz);
-        camera.lookAt(savedView.tx, savedView.ty, savedView.tz);
-        camera.updateProjectionMatrix();
-        controls.update();
-        savedView = null;
-      } else if (activeCamera) {
-        applyCamera(activeCamera);
-      }
+    setEditTopDown(_enabled) {
+      // Camera stays on the locked miniature dollhouse framing.
+      applyDollhouseView();
     },
-    setOrbitEnabled(enabled) {
-      controls.enabled = enabled;
-      if (!enabled) {
-        // Freeze any in-flight damping so a cancelled orbit cannot drift the view.
-        controls.enableDamping = false;
-        controls.update();
-      } else {
-        controls.enableDamping = true;
-      }
+    setOrbitEnabled(_enabled) {
+      // Orbit intentionally disabled — fixed dollhouse camera.
     },
     setHandlesVisible(visible) {
       for (const h of handles.values()) {
@@ -1124,27 +1023,16 @@ export async function createLive3dRenderer(
       camera.aspect = width / Math.max(1, height);
       camera.updateProjectionMatrix();
       renderer.setSize(width, height, false);
-      // Re-frame top cameras now that aspect is known.
-      if (activeCamera) {
-        applyCamera(activeCamera);
-      }
-      if (editTopDown) {
-        applyTopDownEditView();
-      }
+      // Re-frame dollhouse now that aspect is known.
+      applyDollhouseView();
     },
     render() {
-      // Skip orbit update while dragging lights — damping must not shift the view.
-      if (controls.enabled) {
-        controls.update();
-      }
       // Ensure prior shadow/viewport passes cannot clip the main view.
       renderer.setScissorTest(false);
       renderer.setViewport(0, 0, canvas.width, canvas.height);
       renderer.render(scene, camera);
     },
     dispose() {
-      window.clearTimeout(idleTimer);
-      controls.dispose();
       renderer.dispose();
       scene.traverse((obj) => {
         const mesh = obj as Mesh;

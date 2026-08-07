@@ -715,14 +715,24 @@ export class SunflowFloorplanCard extends LitElement implements LovelaceCard {
     }
     const left = Math.round(((ev.clientX - rect.left) / rect.width) * 1000) / 10;
     const top = Math.round(((ev.clientY - rect.top) / rect.height) * 1000) / 10;
-    this._drawCursor = [
+    const next: [number, number] = [
       Math.min(100, Math.max(0, left)),
       Math.min(100, Math.max(0, top)),
     ];
+    const prev = this._drawCursor;
+    if (prev && Math.abs(prev[0] - next[0]) < 0.15 && Math.abs(prev[1] - next[1]) < 0.15) {
+      return;
+    }
+    this._drawCursor = next;
+    this.requestUpdate();
   };
 
   private _onStagePointerLeave = (): void => {
+    if (this._drawCursor === null) {
+      return;
+    }
     this._drawCursor = null;
+    this.requestUpdate();
   };
 
   private _onStageClick(ev: MouseEvent): void {
@@ -835,13 +845,13 @@ export class SunflowFloorplanCard extends LitElement implements LovelaceCard {
     this.requestUpdate();
   }
 
-  /** Freeze orbit + top-down framing while drawing tap polygons. */
+  /** Keep draw/edit cursors in sync; camera stays on locked dollhouse view. */
   private _syncDrawInteraction(): void {
     if (!this._live3d) {
       return;
     }
-    this._live3d.setEditTopDown(this._drawingTap || this._editing);
-    this._live3d.setOrbitEnabled(!this._drawingTap && !this._dragFixture);
+    this._live3d.setEditTopDown(false);
+    this._live3d.setOrbitEnabled(false);
     this._live3d.canvas.style.cursor = this._drawingTap
       ? "crosshair"
       : this._editing
@@ -1010,7 +1020,7 @@ export class SunflowFloorplanCard extends LitElement implements LovelaceCard {
                   class="sf-tap-vertex ${i === draftPts.length - 1 ? "sf-tap-vertex-latest" : ""}"
                   cx=${l}
                   cy=${t}
-                  r="1.8"
+                  r="2.6"
                   style="--sf-group-hue:${hue}"
                 ></circle>
                 <text
@@ -1027,7 +1037,7 @@ export class SunflowFloorplanCard extends LitElement implements LovelaceCard {
               class="sf-tap-cursor"
               cx=${cursor[0]}
               cy=${cursor[1]}
-              r="1.4"
+              r="2.2"
               style="--sf-group-hue:${hue}"
             ></circle>`
           : nothing}
@@ -1121,10 +1131,9 @@ export class SunflowFloorplanCard extends LitElement implements LovelaceCard {
     const canvas = this._live3d.canvas;
     canvas.removeEventListener("pointerdown", this._boundPointerDown, true);
     this._live3d.setHandlesVisible(this._editing);
-    this._live3d.setEditTopDown(this._editing || this._drawingTap);
-    this._live3d.setOrbitEnabled(!this._dragFixture && !this._drawingTap);
+    this._live3d.setEditTopDown(false);
+    this._live3d.setOrbitEnabled(false);
     if (this._editing) {
-      // Capture phase so we can cancel OrbitControls before it starts a rotate.
       canvas.addEventListener("pointerdown", this._boundPointerDown, true);
       canvas.style.cursor = "grab";
     } else if (this._drawingTap) {
@@ -1159,10 +1168,8 @@ export class SunflowFloorplanCard extends LitElement implements LovelaceCard {
     }
     this._dragFixture = id;
     this._dragMoved = false;
-    this._live3d.setOrbitEnabled(false);
     window.addEventListener("pointermove", this._boundPointerMove);
     window.addEventListener("pointerup", this._boundPointerUp);
-    // Stop OrbitControls (bubble listener) from starting a camera gesture.
     ev.preventDefault();
     ev.stopImmediatePropagation();
   }
@@ -1185,7 +1192,6 @@ export class SunflowFloorplanCard extends LitElement implements LovelaceCard {
     window.removeEventListener("pointerup", this._boundPointerUp);
     const fixtureId = this._dragFixture;
     this._dragFixture = null;
-    this._live3d?.setOrbitEnabled(true);
     if (!fixtureId || !this._live3d || !this._dragMoved) {
       return;
     }
@@ -1324,7 +1330,7 @@ export class SunflowFloorplanCard extends LitElement implements LovelaceCard {
                     ? ""
                     : "s"}`
               : html` — select a room chip first`}:
-            click corners on the map (≥3), then Finish. Orbit is locked while drawing.
+            click corners on the map (≥3), then Finish.
             <span class="sf-draw-actions">
               <button
                 ?disabled=${this._draftTapPoints.length === 0}
@@ -1531,117 +1537,130 @@ export class SunflowFloorplanCard extends LitElement implements LovelaceCard {
       cursor: crosshair;
       outline: 2px solid hsl(var(--sf-group-hue, 200) 65% 55%);
     }
+    .sf-stage.sf-drawing-tap .sf-canvas-host,
+    .sf-stage.sf-drawing-tap .sf-gl {
+      /* Let stage receive clicks; WebGL must not sit above the SVG overlay. */
+      pointer-events: none;
+    }
     .sf-tap-areas {
       position: absolute;
       inset: 0;
       width: 100%;
       height: 100%;
       pointer-events: none;
-      z-index: 2;
+      z-index: 5;
       overflow: visible;
     }
     .sf-tap-dim {
-      fill: rgba(10, 12, 16, 0.28);
+      fill: rgba(8, 10, 14, 0.38);
     }
     .sf-tap-poly {
-      fill: hsl(var(--sf-group-hue, 200) 55% 50% / 0.22);
-      stroke: hsl(var(--sf-group-hue, 200) 70% 55% / 0.95);
-      stroke-width: 0.55;
+      fill: hsl(var(--sf-group-hue, 200) 70% 55% / 0.35);
+      stroke: hsl(var(--sf-group-hue, 200) 90% 65%);
+      stroke-width: 2.5;
       vector-effect: non-scaling-stroke;
     }
     .sf-tap-poly-muted {
-      fill: hsl(var(--sf-group-hue, 200) 40% 45% / 0.08);
-      stroke: hsl(var(--sf-group-hue, 200) 40% 50% / 0.35);
-      stroke-width: 0.35;
+      fill: hsl(var(--sf-group-hue, 200) 40% 45% / 0.1);
+      stroke: hsl(var(--sf-group-hue, 200) 40% 55% / 0.45);
+      stroke-width: 1.5;
+      vector-effect: non-scaling-stroke;
     }
     .sf-tap-draft {
-      fill: hsl(var(--sf-group-hue, 200) 60% 50% / 0.32);
-      stroke-width: 0.7;
-      stroke-dasharray: none;
+      fill: hsl(var(--sf-group-hue, 200) 75% 55% / 0.4);
+      stroke: #fff;
+      stroke-width: 3;
+      vector-effect: non-scaling-stroke;
       animation: sf-tap-pulse 1.2s ease-in-out infinite;
     }
     .sf-tap-rubber {
       fill: none;
-      stroke: hsl(var(--sf-group-hue, 200) 80% 60%);
-      stroke-width: 0.65;
-      stroke-dasharray: 1.4 0.9;
+      stroke: #fff;
+      stroke-width: 2.5;
+      stroke-dasharray: 8 5;
       vector-effect: non-scaling-stroke;
+      filter: drop-shadow(0 0 2px hsl(var(--sf-group-hue, 200) 90% 50%));
     }
     .sf-tap-close-hint {
       fill: none;
-      stroke: hsl(var(--sf-group-hue, 200) 70% 70% / 0.55);
-      stroke-width: 0.45;
-      stroke-dasharray: 0.8 0.8;
+      stroke: hsl(var(--sf-group-hue, 200) 80% 70% / 0.7);
+      stroke-width: 2;
+      stroke-dasharray: 4 4;
       vector-effect: non-scaling-stroke;
     }
     .sf-tap-vertex {
-      fill: hsl(var(--sf-group-hue, 200) 75% 58%);
+      fill: hsl(var(--sf-group-hue, 200) 90% 55%);
       stroke: #fff;
-      stroke-width: 0.45;
+      stroke-width: 2;
       vector-effect: non-scaling-stroke;
+      filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.65));
     }
     .sf-tap-vertex-latest {
       fill: #fff;
-      stroke: hsl(var(--sf-group-hue, 200) 80% 50%);
-      stroke-width: 0.55;
+      stroke: hsl(var(--sf-group-hue, 200) 90% 45%);
+      stroke-width: 2.5;
     }
     .sf-tap-cursor {
-      fill: hsl(var(--sf-group-hue, 200) 80% 60% / 0.35);
-      stroke: hsl(var(--sf-group-hue, 200) 80% 65%);
-      stroke-width: 0.4;
+      fill: hsl(var(--sf-group-hue, 200) 90% 60% / 0.45);
+      stroke: #fff;
+      stroke-width: 2;
       vector-effect: non-scaling-stroke;
     }
     .sf-tap-vertex-num {
       fill: #111;
-      font-size: 2.4px;
-      font-weight: 700;
+      font-size: 3.2px;
+      font-weight: 800;
       text-anchor: middle;
       dominant-baseline: central;
       pointer-events: none;
       paint-order: stroke;
       stroke: #fff;
-      stroke-width: 0.35px;
-    }
-    .sf-tap-label {
-      fill: hsl(var(--sf-group-hue, 200) 70% 92%);
-      font-size: 3.2px;
-      font-weight: 700;
-      text-anchor: middle;
-      dominant-baseline: middle;
-      pointer-events: none;
-      paint-order: stroke fill;
-      stroke: rgba(0, 0, 0, 0.75);
       stroke-width: 0.55px;
     }
-    .sf-tap-label-muted {
-      fill: hsl(var(--sf-group-hue, 200) 30% 75% / 0.7);
-      font-size: 2.6px;
-      font-weight: 600;
-    }
-    .sf-tap-label-draft {
-      font-size: 3.6px;
-    }
-    .sf-tap-hint {
+    .sf-tap-label {
       fill: #fff;
-      font-size: 3.4px;
-      font-weight: 600;
+      font-size: 3.6px;
+      font-weight: 800;
       text-anchor: middle;
       dominant-baseline: middle;
       pointer-events: none;
       paint-order: stroke fill;
       stroke: rgba(0, 0, 0, 0.85);
-      stroke-width: 0.6px;
+      stroke-width: 0.7px;
+    }
+    .sf-tap-label-muted {
+      fill: hsl(var(--sf-group-hue, 200) 30% 80% / 0.75);
+      font-size: 2.8px;
+      font-weight: 600;
+    }
+    .sf-tap-label-draft {
+      font-size: 4px;
+    }
+    .sf-tap-hint {
+      fill: #fff;
+      font-size: 4px;
+      font-weight: 700;
+      text-anchor: middle;
+      dominant-baseline: middle;
+      pointer-events: none;
+      paint-order: stroke fill;
+      stroke: rgba(0, 0, 0, 0.9);
+      stroke-width: 0.75px;
     }
     @keyframes sf-tap-pulse {
       0%,
       100% {
-        fill: hsl(var(--sf-group-hue, 200) 60% 50% / 0.28);
+        fill: hsl(var(--sf-group-hue, 200) 75% 55% / 0.32);
       }
       50% {
-        fill: hsl(var(--sf-group-hue, 200) 65% 55% / 0.42);
+        fill: hsl(var(--sf-group-hue, 200) 80% 58% / 0.5);
       }
     }
-    .sf-canvas-host,
+    .sf-canvas-host {
+      position: absolute;
+      inset: 0;
+      z-index: 0;
+    }
     .sf-gl {
       width: 100%;
       height: 100%;
@@ -1651,6 +1670,7 @@ export class SunflowFloorplanCard extends LitElement implements LovelaceCard {
       position: absolute;
       inset: 0;
       pointer-events: none;
+      z-index: 4;
     }
     .sf-marker {
       pointer-events: auto;
