@@ -81,6 +81,7 @@ export class SunflowFloorplanCard extends LitElement implements LovelaceCard {
   private _compositor: BakedCompositor | null = null;
   private _animator = new LightStateAnimator();
   private _live3d: Live3dHandle | null = null;
+  private _live3dFrameId = 0;
   private _hotspots: RoomHotspot[] = [];
   private _groupTapHotspots: GroupTapHotspot[] = [];
   private _images = new Map<string, HTMLImageElement>();
@@ -140,6 +141,7 @@ export class SunflowFloorplanCard extends LitElement implements LovelaceCard {
   public override disconnectedCallback(): void {
     super.disconnectedCallback();
     this._detachEditListeners();
+    this._stopLive3dLoop();
     this._animator.dispose();
     this._compositor?.dispose();
     this._compositor = null;
@@ -177,7 +179,28 @@ export class SunflowFloorplanCard extends LitElement implements LovelaceCard {
         );
         this._syncEditInteraction();
       }
+      this._live3d?.render();
     }
+  }
+
+  private _stopLive3dLoop(): void {
+    if (this._live3dFrameId) {
+      cancelAnimationFrame(this._live3dFrameId);
+      this._live3dFrameId = 0;
+    }
+  }
+
+  private _startLive3dLoop(): void {
+    this._stopLive3dLoop();
+    const tick = () => {
+      this._live3dFrameId = requestAnimationFrame(tick);
+      if (!this._live3d) {
+        this._stopLive3dLoop();
+        return;
+      }
+      this._live3d.render();
+    };
+    this._live3dFrameId = requestAnimationFrame(tick);
   }
 
   private async _load(): Promise<void> {
@@ -265,6 +288,7 @@ export class SunflowFloorplanCard extends LitElement implements LovelaceCard {
           const msg = e instanceof Error ? e.message : String(e);
           if (/webgl|webgpu|renderer/i.test(msg)) {
             this._live3dFallback = true;
+            this._stopLive3dLoop();
             this._live3d?.dispose();
             this._live3d = null;
           } else {
@@ -272,6 +296,7 @@ export class SunflowFloorplanCard extends LitElement implements LovelaceCard {
           }
         }
       } else {
+        this._stopLive3dLoop();
         await this._initBaked();
       }
       this._syncHassState(true);
@@ -432,6 +457,26 @@ export class SunflowFloorplanCard extends LitElement implements LovelaceCard {
     });
   }
 
+  private _sizeLive3dCanvas(canvas: HTMLCanvasElement, host: HTMLElement): void {
+    const rect = host.getBoundingClientRect();
+    const width = Math.max(1, Math.floor(rect.width));
+    const height = Math.max(1, Math.floor(rect.height || rect.width * (405 / 720)));
+    canvas.width = width;
+    canvas.height = height;
+    canvas.style.width = "100%";
+    canvas.style.height = "100%";
+  }
+
+  /** WebGPU (Babylon/Three) needs the canvas connected before engine init. */
+  private _mountLive3dCanvas(canvas: HTMLCanvasElement): void {
+    const host = this.renderRoot?.querySelector(".sf-canvas-host") as HTMLElement | null;
+    if (!host) {
+      return;
+    }
+    host.replaceChildren(canvas);
+    this._sizeLive3dCanvas(canvas, host);
+  }
+
   private async _initLive3d(): Promise<void> {
     if (!this._ir) {
       throw new Error("live3d mode requires IR (manifest or inline ir)");
@@ -439,10 +484,12 @@ export class SunflowFloorplanCard extends LitElement implements LovelaceCard {
     await this.updateComplete;
     const canvas = document.createElement("canvas");
     canvas.className = "sf-gl";
+    this._mountLive3dCanvas(canvas);
     const cam = this._currentCamera();
     const levelId = this._currentLevelId();
     const elev = this._ir.levels.find((l) => l.id === levelId)?.elevation ?? 0;
     this._live3d?.dispose();
+    this._stopLive3dLoop();
     const { createLive3dRenderer } = await import("./renderer/live3d/scene");
     this._live3d = await createLive3dRenderer(this._ir, canvas, cam, {
       poses: this._posesFromConfig(),
@@ -457,10 +504,18 @@ export class SunflowFloorplanCard extends LitElement implements LovelaceCard {
         this._ir?.environment?.planNorthDeg,
       ),
       gpu: this._config?.render?.gpu ?? "webgpu",
+      engine: this._config?.render?.engine ?? "three",
+      lockCamera: this._config?.render?.lock_camera !== false,
     });
     this._ensureCanvasMounted();
+    const host = this.renderRoot?.querySelector(".sf-canvas-host") as HTMLElement | null;
+    if (host && this._live3d) {
+      this._sizeLive3dCanvas(this._live3d.canvas, host);
+      this._live3d.resize(this._live3d.canvas.width, this._live3d.canvas.height);
+    }
     this._syncEditInteraction();
     this._syncSun();
+    this._startLive3dLoop();
   }
 
   private _editFixtureLabels(): {
@@ -1083,20 +1138,33 @@ export class SunflowFloorplanCard extends LitElement implements LovelaceCard {
     this.requestUpdate();
   }
 
-  /** Keep draw/edit cursors in sync; camera stays on locked dollhouse view. */
+  /** Keep draw/edit cursors in sync; honour lock_camera for orbit vs dollhouse. */
   private _syncDrawInteraction(): void {
     if (!this._live3d) {
       return;
     }
     this._live3d.setEditTopDown(false);
-    this._live3d.setOrbitEnabled(false);
-    this._live3d.canvas.style.pointerEvents = this._editing ? "auto" : "none";
+    this._syncCameraInteraction();
     this._live3d.canvas.style.cursor = this._drawingTap
       ? "crosshair"
       : this._editing
         ? "grab"
         : "";
     this._live3d.render();
+  }
+
+  private _cameraLocked(): boolean {
+    return this._config.render?.lock_camera !== false;
+  }
+
+  private _syncCameraInteraction(): void {
+    if (!this._live3d) {
+      return;
+    }
+    const freeCam = !this._cameraLocked();
+    this._live3d.setOrbitEnabled(freeCam && !this._dragFixture);
+    this._live3d.canvas.style.pointerEvents =
+      this._editing || this._drawingTap || freeCam ? "auto" : "none";
   }
 
   private _undoTapPoint(): void {
@@ -1351,6 +1419,21 @@ export class SunflowFloorplanCard extends LitElement implements LovelaceCard {
     this.requestUpdate();
   }
 
+  private _toggleCameraLock(): void {
+    const locked = !this._cameraLocked();
+    this._config = {
+      ...this._config,
+      render: {
+        ...this._config.render,
+        lock_camera: locked,
+      },
+    };
+    this._syncCameraInteraction();
+    this._live3d?.render();
+    fireEvent(this, "config-changed", { config: this._config });
+    this.requestUpdate();
+  }
+
   private _syncEditInteraction(): void {
     if (!this._live3d) {
       return;
@@ -1359,13 +1442,14 @@ export class SunflowFloorplanCard extends LitElement implements LovelaceCard {
     canvas.removeEventListener("pointerdown", this._boundPointerDown, true);
     this._live3d.setHandlesVisible(this._editing);
     this._live3d.setEditTopDown(false);
-    this._live3d.setOrbitEnabled(false);
-    canvas.style.pointerEvents = this._editing ? "auto" : "none";
+    this._syncCameraInteraction();
     if (this._editing) {
       canvas.addEventListener("pointerdown", this._boundPointerDown, true);
       canvas.style.cursor = "grab";
     } else if (this._drawingTap) {
       canvas.style.cursor = "crosshair";
+    } else if (!this._cameraLocked()) {
+      canvas.style.cursor = "grab";
     } else {
       window.removeEventListener("pointermove", this._boundPointerMove);
       window.removeEventListener("pointerup", this._boundPointerUp);
@@ -1396,6 +1480,7 @@ export class SunflowFloorplanCard extends LitElement implements LovelaceCard {
     }
     this._dragFixture = id;
     this._dragMoved = false;
+    this._live3d.setOrbitEnabled(false);
     window.addEventListener("pointermove", this._boundPointerMove);
     window.addEventListener("pointerup", this._boundPointerUp);
     ev.preventDefault();
@@ -1420,6 +1505,7 @@ export class SunflowFloorplanCard extends LitElement implements LovelaceCard {
     window.removeEventListener("pointerup", this._boundPointerUp);
     const fixtureId = this._dragFixture;
     this._dragFixture = null;
+    this._syncCameraInteraction();
     if (!fixtureId || !this._live3d || !this._dragMoved) {
       return;
     }
@@ -1484,6 +1570,7 @@ export class SunflowFloorplanCard extends LitElement implements LovelaceCard {
     const canEdit =
       !!this._config.edit_mode && mode === "live3d" && !this._live3dFallback;
     const canDrawTap = !!this._config.edit_mode && groupIds.length > 0;
+    const canFreeCam = mode === "live3d" && !this._live3dFallback;
 
     return html`
       ${this._config.title
@@ -1660,6 +1747,14 @@ export class SunflowFloorplanCard extends LitElement implements LovelaceCard {
       </div>
       <div class="sf-controls">
         <button @click=${this._allOff}>All off</button>
+        ${canFreeCam
+          ? html`<button
+              class=${this._cameraLocked() ? "" : "active"}
+              @click=${() => this._toggleCameraLock()}
+            >
+              ${this._cameraLocked() ? "Free camera" : "Lock camera"}
+            </button>`
+          : nothing}
         ${canEdit
           ? html`<button class=${this._editing ? "active" : ""} @click=${this._toggleEditing}>
               ${this._editing ? "Done editing" : "Edit lights"}

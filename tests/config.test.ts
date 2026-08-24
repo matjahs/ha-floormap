@@ -51,6 +51,26 @@ describe("config validation", () => {
     ).toThrow(/render\.gpu/);
   });
 
+  it("rejects bad render.engine", () => {
+    expect(() =>
+      validateConfig({
+        type: "custom:sunflow-floorplan-card",
+        entities: { a: { entity: "light.x" } },
+        render: { engine: "unity" as "three" },
+      }),
+    ).toThrow(/render\.engine/);
+  });
+
+  it("rejects bad render.lock_camera", () => {
+    expect(() =>
+      validateConfig({
+        type: "custom:sunflow-floorplan-card",
+        entities: { a: { entity: "light.x" } },
+        render: { lock_camera: "yes" as unknown as boolean },
+      }),
+    ).toThrow(/render\.lock_camera/);
+  });
+
   it("rejects marker override that is not a pair", () => {
     expect(() =>
       validateConfig({

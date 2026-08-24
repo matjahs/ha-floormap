@@ -50,6 +50,14 @@ export function validateConfig(config: unknown): SunflowFloorplanCardConfig {
       throw new Error("render.gpu must be webgpu or webgl");
     }
   }
+  if (cfg.render?.engine !== undefined) {
+    if (cfg.render.engine !== "three" && cfg.render.engine !== "babylon") {
+      throw new Error("render.engine must be three or babylon");
+    }
+  }
+  if (cfg.render?.lock_camera !== undefined && typeof cfg.render.lock_camera !== "boolean") {
+    throw new Error("render.lock_camera must be a boolean");
+  }
   if (cfg.entities) {
     for (const [id, ent] of Object.entries(cfg.entities)) {
       if (!ent?.entity) {

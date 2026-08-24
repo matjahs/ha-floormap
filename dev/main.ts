@@ -118,8 +118,22 @@ function mountCard(): void {
       `WebGPU: ${!!navigator.gpu}`,
       `WebGL2: ${!!document.createElement("canvas").getContext("webgl2")}`,
       `live3d gpu: ${liveConfig.render?.gpu ?? "webgpu"}`,
+      `live3d engine: ${liveConfig.render?.engine ?? "three"}`,
+      `lock_camera: ${liveConfig.render?.lock_camera !== false}`,
     ].join("\n"),
   );
+  const camBtn = document.querySelector("#btn-free-camera") as HTMLButtonElement | null;
+  if (camBtn) {
+    const locked = liveConfig.render?.lock_camera !== false;
+    camBtn.textContent = locked ? "Free camera" : "Lock camera";
+    camBtn.classList.toggle("on", !locked);
+  }
+  const engineBtn = document.querySelector("#btn-toggle-engine") as HTMLButtonElement | null;
+  if (engineBtn) {
+    const engine = liveConfig.render?.engine ?? "three";
+    engineBtn.textContent = engine === "babylon" ? "Engine: Babylon" : "Engine: Three";
+    engineBtn.classList.toggle("on", engine === "babylon");
+  }
 }
 
 function downloadPlacements(): void {
@@ -173,6 +187,37 @@ document.querySelector("#btn-random")?.addEventListener("click", () => {
 document.querySelector("#btn-reload")?.addEventListener("click", () => {
   mountCard();
   void probeAssets();
+});
+document.querySelector("#btn-free-camera")?.addEventListener("click", () => {
+  if (!card) {
+    return;
+  }
+  liveConfig = {
+    ...liveConfig,
+    render: {
+      ...liveConfig.render,
+      lock_camera: liveConfig.render?.lock_camera === false,
+    },
+  };
+  card.setConfig(liveConfig);
+  const btn = document.querySelector("#btn-free-camera") as HTMLButtonElement | null;
+  if (btn) {
+    const locked = liveConfig.render?.lock_camera !== false;
+    btn.textContent = locked ? "Free camera" : "Lock camera";
+    btn.classList.toggle("on", !locked);
+  }
+  refreshExport();
+});
+document.querySelector("#btn-toggle-engine")?.addEventListener("click", () => {
+  const next = liveConfig.render?.engine === "babylon" ? "three" : "babylon";
+  liveConfig = {
+    ...liveConfig,
+    render: {
+      ...liveConfig.render,
+      engine: next,
+    },
+  };
+  mountCard();
 });
 document.querySelector("#btn-export")?.addEventListener("click", () => {
   downloadPlacements();

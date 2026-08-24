@@ -22,6 +22,12 @@ export default defineConfig({
         chunkFileNames: "chunks/[name]-[hash].js",
         assetFileNames: "assets/[name]-[hash][extname]",
         manualChunks(id) {
+          if (id.includes("node_modules/@babylonjs/loaders")) {
+            return "babylon-loaders";
+          }
+          if (id.includes("node_modules/@babylonjs/core")) {
+            return "babylon-core";
+          }
           if (id.includes("node_modules/three/build/three.webgpu") || id.includes("three/webgpu")) {
             return "three-webgpu";
           }

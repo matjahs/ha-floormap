@@ -1,6 +1,6 @@
 # Future: Babylon.js live3d backend
 
-**Status: deferred.** The card currently uses **Lit** for the Lovelace shell and **Three.js** for live3d dollhouse rendering.
+**Status: spike in progress.** The card uses **Lit** for the Lovelace shell. live3d supports **Three.js** (default) and an experimental **Babylon.js** backend via `render.engine: babylon` (playground default).
 
 ## Why Babylon was considered
 
