@@ -41,6 +41,16 @@ describe("config validation", () => {
     ).toThrow(/render.mode/);
   });
 
+  it("rejects bad render.gpu", () => {
+    expect(() =>
+      validateConfig({
+        type: "custom:sunflow-floorplan-card",
+        entities: { a: { entity: "light.x" } },
+        render: { gpu: "vulkan" as "webgpu" },
+      }),
+    ).toThrow(/render\.gpu/);
+  });
+
   it("rejects marker override that is not a pair", () => {
     expect(() =>
       validateConfig({

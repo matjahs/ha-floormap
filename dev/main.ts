@@ -115,7 +115,9 @@ function mountCard(): void {
       `mode: ${liveConfig.render?.mode}`,
       `edit_mode: ${liveConfig.edit_mode}`,
       `entities: ${entityIds.length}`,
+      `WebGPU: ${!!navigator.gpu}`,
       `WebGL2: ${!!document.createElement("canvas").getContext("webgl2")}`,
+      `live3d gpu: ${liveConfig.render?.gpu ?? "webgpu"}`,
     ].join("\n"),
   );
 }

@@ -10,13 +10,16 @@ import {
 import { groupHue } from "../../groups";
 import { isCeilingObject } from "./ceilings";
 import {
+  isTransparentGlassMaterial,
+  simplifyGltfMaterial,
+} from "./gltf-materials";
+import {
   geographicNorthRenderDir,
   horizontalDirToScreenDeg,
   PLAN_NORTH_RENDER_DIR,
   type CompassBearings,
 } from "../../compass";
 import type {
-  WebGLRenderer,
   Scene,
   PerspectiveCamera,
   PointLight,
@@ -26,9 +29,15 @@ import type {
   Plane,
   Object3D,
 } from "three";
+import {
+  createLive3dGpuRenderer,
+  type Live3dGpuBackend,
+} from "./renderer-backend";
 
 export interface Live3dHandle {
   canvas: HTMLCanvasElement;
+  /** Active GPU backend after init (WebGPURenderer may fall back to WebGL2). */
+  rendererBackend: Live3dGpuBackend;
   setLight(fixtureId: string, params: LightParams): void;
   /** Per-sample params for strip fixtures (length = sample count). */
   setLightSamples(fixtureId: string, params: LightParams[]): void;
@@ -78,6 +87,8 @@ export interface Live3dOptions {
   sceneGltfUrl?: string;
   /** Compass heading of plan +Y (degrees geographic). Default 0. */
   planNorthDeg?: number;
+  /** live3d GPU API — default webgpu (falls back to WebGL2 when unavailable). */
+  gpu?: Live3dGpuBackend;
 }
 
 function planToRender(pos: Vec3): { x: number; y: number; z: number } {
@@ -94,11 +105,6 @@ function renderToPlan(x: number, y: number, z: number): Vec3 {
  * Ceilings stay on the default layer so they cast into the sun shadow map. WebGLShadowMap
  * tests casters against the *main* camera layers, so a separate hidden layer never works.
  */
-import { CEILING_NAME_RE, isCeilingObject } from "./ceilings";
-import {
-  isTransparentGlassMaterial,
-  simplifyGltfMaterial,
-} from "./gltf-materials";
 
 /** Collapse glTF PBR materials — see gltf-materials.ts */
 function assignSimplifiedMaterials(
@@ -145,20 +151,11 @@ export async function createLive3dRenderer(
   initialCamera?: CameraIR,
   opts: Live3dOptions = {},
 ): Promise<Live3dHandle> {
-  const THREE = await import("three");
-
-  const renderer: WebGLRenderer = new THREE.WebGLRenderer({
+  const gpu = opts.gpu ?? "webgpu";
+  const { renderer, three: THREE, active: rendererBackend } = await createLive3dGpuRenderer(
     canvas,
-    antialias: true,
-    alpha: false,
-    powerPreference: "high-performance",
-  });
-  renderer.outputColorSpace = THREE.SRGBColorSpace;
-  renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 0.85;
-  renderer.shadowMap.enabled = true;
-  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-  renderer.setClearColor(0xe6e6e4, 1);
+    gpu,
+  );
 
   const scene: Scene = new THREE.Scene();
   scene.background = new THREE.Color("#e6e6e4");
@@ -1058,6 +1055,7 @@ export async function createLive3dRenderer(
 
   return {
     canvas,
+    rendererBackend,
     setLight(fixtureId, params) {
       const group = lights.get(fixtureId);
       if (!group) {

@@ -263,7 +263,7 @@ export class SunflowFloorplanCard extends LitElement implements LovelaceCard {
           await this._initLive3d();
         } catch (e) {
           const msg = e instanceof Error ? e.message : String(e);
-          if (/webgl/i.test(msg)) {
+          if (/webgl|webgpu|renderer/i.test(msg)) {
             this._live3dFallback = true;
             this._live3d?.dispose();
             this._live3d = null;
@@ -456,6 +456,7 @@ export class SunflowFloorplanCard extends LitElement implements LovelaceCard {
         this._config?.render?.north,
         this._ir?.environment?.planNorthDeg,
       ),
+      gpu: this._config?.render?.gpu ?? "webgpu",
     });
     this._ensureCanvasMounted();
     this._syncEditInteraction();
@@ -1595,7 +1596,7 @@ export class SunflowFloorplanCard extends LitElement implements LovelaceCard {
         : nothing}
       ${this._live3dFallback
         ? html`<div class="sf-edit-banner">
-            live3d WebGL unavailable — marker preview only (drag edit disabled)
+            live3d GPU unavailable — marker preview only (drag edit disabled)
           </div>`
         : nothing}
       <div

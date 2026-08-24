@@ -45,6 +45,11 @@ export function validateConfig(config: unknown): SunflowFloorplanCardConfig {
       throw new Error("render.floor_height_m must be a positive number");
     }
   }
+  if (cfg.render?.gpu !== undefined) {
+    if (cfg.render.gpu !== "webgpu" && cfg.render.gpu !== "webgl") {
+      throw new Error("render.gpu must be webgpu or webgl");
+    }
+  }
   if (cfg.entities) {
     for (const [id, ent] of Object.entries(cfg.entities)) {
       if (!ent?.entity) {

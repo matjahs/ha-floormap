@@ -19,6 +19,8 @@ export interface BBox {
 export type RenderMode = "baked" | "live3d";
 export type ToneMap = "aces" | "reinhard" | "none";
 export type AmbientMode = "off" | "sun" | string;
+/** live3d GPU backend — webgpu falls back to WebGL2 when WebGPU is unavailable. */
+export type Live3dGpuBackend = "webgpu" | "webgl";
 export type FixtureKind = "point" | "strip";
 
 /** WLED-style segment along a strip fixture (fractions 0..1). */
@@ -97,6 +99,8 @@ export interface RenderConfig {
   floor_height_m?: number;
   /** Local skyline obstructions for sun visibility (matters most on upper floors). */
   sun_obstruction?: import("./sun-horizon").SunObstructionConfig;
+  /** live3d renderer: webgpu (default) or force webgl. */
+  gpu?: Live3dGpuBackend;
 }
 
 export interface SunflowFloorplanCardConfig extends LovelaceCardConfig {

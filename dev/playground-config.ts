@@ -17,6 +17,7 @@ export const playgroundConfig: SunflowFloorplanCardConfig = {
   edit_mode: true,
   render: {
     mode: "live3d",
+    gpu: "webgpu",
     tone_map: "aces",
     exposure: 1.0,
     gamma: 2.2,

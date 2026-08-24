@@ -49,6 +49,7 @@ scene_glb: /local/floorplan/appartement.glb
 scene: /local/floorplan/appartement.scene.json
 render:
   mode: live3d
+  gpu: webgpu   # default; auto-falls back to WebGL2 when WebGPU is unavailable
 ```
 
 Fixture ids are `L01`–`L18` (Blender Lighting collections). See

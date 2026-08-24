@@ -22,6 +22,9 @@ export default defineConfig({
         chunkFileNames: "chunks/[name]-[hash].js",
         assetFileNames: "assets/[name]-[hash][extname]",
         manualChunks(id) {
+          if (id.includes("node_modules/three/build/three.webgpu") || id.includes("three/webgpu")) {
+            return "three-webgpu";
+          }
           if (!id.includes("node_modules/three")) {
             return undefined;
           }
