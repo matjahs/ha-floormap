@@ -73,6 +73,15 @@ describe("config validation", () => {
     expect(cfg.edit_mode).toBe(true);
   });
 
+  it("accepts scene_glb as a data source", () => {
+    const cfg = validateConfig({
+      type: "custom:sunflow-floorplan-card",
+      scene_glb: "/local/floorplan/appartement.glb",
+      entities: { L01: { entity: "light.livingroom_light_1" } },
+    });
+    expect(cfg.scene_glb).toContain("appartement.glb");
+  });
+
   it("accepts groups with tap_area polygon", () => {
     const cfg = validateConfig({
       type: "custom:sunflow-floorplan-card",

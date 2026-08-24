@@ -1,4 +1,4 @@
-import { LitElement, css, html, nothing } from "lit";
+import { LitElement, css, html, svg, nothing } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import type { HomeAssistant, LovelaceCard } from "custom-card-helpers";
 import { fireEvent } from "custom-card-helpers";
@@ -14,6 +14,7 @@ import { validateConfig, stubConfig } from "./config";
 import type { FloorplanIR } from "./import/ir";
 import { assertIR } from "./import/ir";
 import { importFml } from "./import/fml";
+import { importBlenderScene } from "./import/blender";
 import { selectCamera, projectToPercent } from "./projection";
 import {
   mergePlacementsIntoOverrides,
@@ -23,9 +24,12 @@ import {
 } from "./pose";
 import {
   buildGroupTapHotspots,
+  clientToStagePercent,
   discoverGroupIds,
   findGroupConfig,
   groupHue,
+  hitTapEdge,
+  hitTapVertex,
   hitTestGroupTap,
   memberEntitiesForGroup,
   type GroupTapHotspot,
@@ -46,6 +50,7 @@ import { LightStateAnimator, entityToLightParams, mergeOverride } from "./render
 import { dispatchMarkerAction, isDefaultToggleAction } from "./renderer/shared/markers";
 import { buildRoomHotspots, hitTestRoom, type RoomHotspot } from "./renderer/shared/rooms";
 import type { Live3dHandle } from "./renderer/live3d/scene";
+import { resolvePlanNorthDeg, resolveCardFloorSun, sunShadingFromHass } from "./sun";
 
 export const CARD_TYPE = "sunflow-floorplan-card";
 
@@ -68,6 +73,8 @@ export class SunflowFloorplanCard extends LitElement implements LovelaceCard {
   @state() private _draftTapPoints: [number, number][] = [];
   /** Cursor position in stage % while drawing (rubber-band). */
   @state() private _drawCursor: [number, number] | null = null;
+  /** Index of the tap vertex currently being dragged, if any. */
+  @state() private _dragTapIndex: number | null = null;
   /** live3d requested but WebGL unavailable — marker-only preview */
   @state() private _live3dFallback = false;
 
@@ -103,6 +110,7 @@ export class SunflowFloorplanCard extends LitElement implements LovelaceCard {
     this._drawingGroupId = null;
     this._draftTapPoints = [];
     this._drawCursor = null;
+    this._dragTapIndex = null;
     void this._load();
   }
 
@@ -117,6 +125,11 @@ export class SunflowFloorplanCard extends LitElement implements LovelaceCard {
       min_columns: 6,
       min_rows: 3,
     };
+  }
+
+  /** Playground debug: geographic N vs plan +Y on screen. */
+  public getCompassBearings(): import("./compass").CompassBearings | null {
+    return this._live3d?.getCompassBearings() ?? null;
   }
 
   public override connectedCallback(): void {
@@ -136,7 +149,12 @@ export class SunflowFloorplanCard extends LitElement implements LovelaceCard {
 
   protected override updated(changed: Map<string, unknown>): void {
     if (changed.has("hass") && this._config) {
-      this._syncHassState();
+      // Avoid Lit "change-in-update": hass sync may request a marker re-render.
+      queueMicrotask(() => {
+        if (this._config) {
+          this._syncHassState();
+        }
+      });
     }
     // Lit clears empty host children on render; re-attach imperative canvas.
     this._ensureCanvasMounted();
@@ -187,7 +205,28 @@ export class SunflowFloorplanCard extends LitElement implements LovelaceCard {
         }
       }
 
-      if (this._config.fml) {
+      if (this._config.scene_glb || this._config.scene) {
+        const sceneIr = await this._loadBlenderScene();
+        if (!ir) {
+          ir = sceneIr;
+        } else {
+          ir = {
+            ...ir,
+            walls: [],
+            rooms: [],
+            furniture: [],
+            openings: [],
+            fixtures: sceneIr.fixtures,
+            cameras: sceneIr.cameras,
+            bounds: sceneIr.bounds,
+            environment: {
+              ...ir.environment,
+              ...sceneIr.environment,
+            },
+            source: sceneIr.source,
+          };
+        }
+      } else if (this._config.fml) {
         const fmlIr = await this._loadFmlScene();
         if (!ir) {
           ir = fmlIr;
@@ -241,6 +280,30 @@ export class SunflowFloorplanCard extends LitElement implements LovelaceCard {
     } catch (e) {
       this._error = e instanceof Error ? e.message : String(e);
     }
+  }
+
+  private _sceneSidecarUrl(): string {
+    if (this._config.scene) {
+      return this._config.scene;
+    }
+    const glb = this._config.scene_glb;
+    if (!glb) {
+      throw new Error("scene_glb or scene is required");
+    }
+    if (/\.glb$/i.test(glb)) {
+      return glb.replace(/\.glb$/i, ".scene.json");
+    }
+    return `${glb}.scene.json`;
+  }
+
+  private async _loadBlenderScene(): Promise<FloorplanIR> {
+    const url = this._sceneSidecarUrl();
+    const res = await fetch(url);
+    if (!res.ok) {
+      throw new Error(`Failed to load Blender scene: ${res.status} ${url}`);
+    }
+    const raw = await res.json();
+    return importBlenderScene(raw, url.split("/").pop() ?? "appartement.scene.json");
   }
 
   private async _loadFmlScene(): Promise<FloorplanIR> {
@@ -388,9 +451,15 @@ export class SunflowFloorplanCard extends LitElement implements LovelaceCard {
       editableFixtureIds: Object.keys(this._config.entities ?? {}),
       editableFixtureLabels: this._editFixtureLabels().labels,
       editableFixtureRooms: this._editFixtureLabels().rooms,
+      sceneGltfUrl: this._config.scene_glb,
+      planNorthDeg: resolvePlanNorthDeg(
+        this._config?.render?.north,
+        this._ir?.environment?.planNorthDeg,
+      ),
     });
     this._ensureCanvasMounted();
     this._syncEditInteraction();
+    this._syncSun();
   }
 
   private _editFixtureLabels(): {
@@ -550,7 +619,25 @@ export class SunflowFloorplanCard extends LitElement implements LovelaceCard {
     }
   }
 
+  private _syncSun(): void {
+    if (!this._live3d) {
+      return;
+    }
+    const ambient = this._config?.render?.ambient ?? "sun";
+    const north = resolvePlanNorthDeg(
+      this._config?.render?.north,
+      this._ir?.environment?.planNorthDeg,
+    );
+    const floor = resolveCardFloorSun({
+      render: this._config?.render,
+      environment: this._ir?.environment,
+    });
+    this._live3d.setSun(sunShadingFromHass(this.hass, ambient, north, new Date(), floor));
+    this._live3d.render();
+  }
+
   private _syncHassState(snap = false): void {
+    this._syncSun();
     if (!this._config?.entities || !this.hass) {
       return;
     }
@@ -640,7 +727,7 @@ export class SunflowFloorplanCard extends LitElement implements LovelaceCard {
     this._rebuildMarkers();
     // Skip Lit updates when marker DOM would be identical (prevents canvas host thrash).
     if (before !== this._markerSignature()) {
-      this.requestUpdate();
+      queueMicrotask(() => this.requestUpdate());
     }
   }
 
@@ -704,21 +791,88 @@ export class SunflowFloorplanCard extends LitElement implements LovelaceCard {
     this._onMarkerAction("hold", m.fixtureId, m.segmentIndex);
   }
 
+  private _stagePointerPercent(
+    ev: PointerEvent | MouseEvent,
+  ): { stage: HTMLElement; rect: DOMRect; point: [number, number] } | null {
+    const stage = ev.currentTarget as HTMLElement;
+    const rect = stage.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) {
+      return null;
+    }
+    return {
+      stage,
+      rect,
+      point: clientToStagePercent(rect, ev.clientX, ev.clientY),
+    };
+  }
+
+  private _tapHitThresholds(rect: DOMRect): { vertex: number; edge: number } {
+    const px = Math.min(rect.width, rect.height);
+    const vertex = Math.max(3.5, (24 / px) * 100);
+    return { vertex, edge: Math.max(2, vertex * 0.55) };
+  }
+
+  private _beginTapDrag(index: number, stage: HTMLElement, pointerId: number): void {
+    this._dragTapIndex = index;
+    this._drawCursor = null;
+    if (stage.setPointerCapture) {
+      stage.setPointerCapture(pointerId);
+    }
+    stage.style.cursor = "grabbing";
+  }
+
+  private _endTapDrag(stage?: HTMLElement): void {
+    if (this._dragTapIndex === null) {
+      return;
+    }
+    this._dragTapIndex = null;
+    if (stage) {
+      stage.style.cursor = "";
+    }
+    this.requestUpdate();
+  }
+
+  private _moveTapPoint(index: number, point: [number, number]): void {
+    const next = this._draftTapPoints.slice();
+    next[index] = point;
+    this._draftTapPoints = next;
+  }
+
+  private _removeTapPoint(index: number): void {
+    if (index < 0 || index >= this._draftTapPoints.length) {
+      return;
+    }
+    this._draftTapPoints = this._draftTapPoints.filter((_, i) => i !== index);
+    if (this._dragTapIndex === index) {
+      this._dragTapIndex = null;
+    } else if (this._dragTapIndex !== null && this._dragTapIndex > index) {
+      this._dragTapIndex -= 1;
+    }
+    this.requestUpdate();
+  }
+
   private _onStagePointerMove = (ev: PointerEvent): void => {
     if (!this._drawingTap || !this._drawingGroupId) {
       return;
     }
-    const stage = ev.currentTarget as HTMLElement;
-    const rect = stage.getBoundingClientRect();
-    if (rect.width <= 0 || rect.height <= 0) {
+    const hit = this._stagePointerPercent(ev);
+    if (!hit) {
       return;
     }
-    const left = Math.round(((ev.clientX - rect.left) / rect.width) * 1000) / 10;
-    const top = Math.round(((ev.clientY - rect.top) / rect.height) * 1000) / 10;
-    const next: [number, number] = [
-      Math.min(100, Math.max(0, left)),
-      Math.min(100, Math.max(0, top)),
-    ];
+    if (this._dragTapIndex !== null) {
+      this._moveTapPoint(this._dragTapIndex, hit.point);
+      this.requestUpdate();
+      return;
+    }
+    const { vertex, edge } = this._tapHitThresholds(hit.rect);
+    if (hitTapVertex(this._draftTapPoints, hit.point, vertex) >= 0) {
+      hit.stage.style.cursor = "grab";
+    } else if (hitTapEdge(this._draftTapPoints, hit.point, edge)) {
+      hit.stage.style.cursor = "copy";
+    } else {
+      hit.stage.style.cursor = "";
+    }
+    const next = hit.point;
     const prev = this._drawCursor;
     if (prev && Math.abs(prev[0] - next[0]) < 0.15 && Math.abs(prev[1] - next[1]) < 0.15) {
       return;
@@ -728,6 +882,9 @@ export class SunflowFloorplanCard extends LitElement implements LovelaceCard {
   };
 
   private _onStagePointerLeave = (): void => {
+    if (this._dragTapIndex !== null) {
+      return;
+    }
     if (this._drawCursor === null) {
       return;
     }
@@ -735,7 +892,93 @@ export class SunflowFloorplanCard extends LitElement implements LovelaceCard {
     this.requestUpdate();
   };
 
+  private _onStagePointerUp = (ev: PointerEvent): void => {
+    if (this._dragTapIndex === null) {
+      return;
+    }
+    this._endTapDrag(ev.currentTarget as HTMLElement);
+  };
+
+  private _onStagePointerDown = (ev: PointerEvent): void => {
+    if (!this._drawingTap || ev.button !== 0) {
+      return;
+    }
+    if (!this._drawingGroupId) {
+      return;
+    }
+    const hit = this._stagePointerPercent(ev);
+    if (!hit) {
+      return;
+    }
+    const { vertex, edge } = this._tapHitThresholds(hit.rect);
+    const vtx = hitTapVertex(this._draftTapPoints, hit.point, vertex);
+    if (vtx >= 0) {
+      this._beginTapDrag(vtx, hit.stage, ev.pointerId);
+      ev.preventDefault();
+      this.requestUpdate();
+      return;
+    }
+    const edgeHit = hitTapEdge(this._draftTapPoints, hit.point, edge);
+    if (edgeHit) {
+      const next = this._draftTapPoints.slice();
+      next.splice(edgeHit.insertAt, 0, edgeHit.point);
+      this._draftTapPoints = next;
+      this._beginTapDrag(edgeHit.insertAt, hit.stage, ev.pointerId);
+      ev.preventDefault();
+      this.requestUpdate();
+      return;
+    }
+    if (this._draftTapPoints.length >= 3) {
+      // Closed polygon: empty clicks do not append (use an edge to add).
+      return;
+    }
+    this._draftTapPoints = [...this._draftTapPoints, hit.point];
+    this._drawCursor = hit.point;
+    ev.preventDefault();
+    this.requestUpdate();
+  };
+
+  private _onStageDblClick = (ev: MouseEvent): void => {
+    if (!this._drawingTap || !this._drawingGroupId) {
+      return;
+    }
+    const hit = this._stagePointerPercent(ev);
+    if (!hit) {
+      return;
+    }
+    const { vertex } = this._tapHitThresholds(hit.rect);
+    const vtx = hitTapVertex(this._draftTapPoints, hit.point, vertex);
+    if (vtx < 0) {
+      return;
+    }
+    ev.preventDefault();
+    this._removeTapPoint(vtx);
+  };
+
+  private _onStageContextMenu = (ev: MouseEvent): void => {
+    if (!this._drawingTap) {
+      return;
+    }
+    ev.preventDefault();
+    if (!this._drawingGroupId) {
+      return;
+    }
+    const hit = this._stagePointerPercent(ev);
+    if (!hit) {
+      return;
+    }
+    const { vertex } = this._tapHitThresholds(hit.rect);
+    const vtx = hitTapVertex(this._draftTapPoints, hit.point, vertex);
+    if (vtx >= 0) {
+      this._removeTapPoint(vtx);
+    }
+  };
+
   private _onStageClick(ev: MouseEvent): void {
+    if (this._drawingTap) {
+      ev.preventDefault();
+      return;
+    }
     if (this._editing || this._dragMoved) {
       this._dragMoved = false;
       return;
@@ -744,19 +987,6 @@ export class SunflowFloorplanCard extends LitElement implements LovelaceCard {
     const rect = stage.getBoundingClientRect();
     const u = (ev.clientX - rect.left) / rect.width;
     const v = (ev.clientY - rect.top) / rect.height;
-
-    // Drawing mode: never toggle lights; only place vertices once a group is selected.
-    if (this._drawingTap) {
-      if (!this._drawingGroupId) {
-        return;
-      }
-      const left = Math.round(u * 1000) / 10;
-      const top = Math.round(v * 1000) / 10;
-      this._draftTapPoints = [...this._draftTapPoints, [left, top]];
-      this._drawCursor = [left, top];
-      this.requestUpdate();
-      return;
-    }
 
     // Group tap areas take precedence over room hotspots.
     const groupHit = hitTestGroupTap(this._groupTapHotspots, u, v);
@@ -804,6 +1034,8 @@ export class SunflowFloorplanCard extends LitElement implements LovelaceCard {
     this._drawingGroupId = gid;
     const existing = findGroupConfig(this._config, gid)?.tap_area;
     this._draftTapPoints = existing ? existing.map(([a, b]) => [a, b] as [number, number]) : [];
+    this._dragTapIndex = null;
+    this._drawCursor = null;
     this.requestUpdate();
   }
 
@@ -822,9 +1054,13 @@ export class SunflowFloorplanCard extends LitElement implements LovelaceCard {
     }
     this._drawingTap = true;
     this._drawCursor = null;
+    const configured = Object.keys(this._config.groups ?? {})
+      .map((id) => normalizeRoomId(id) || id)
+      .filter(Boolean);
     const ids = discoverGroupIds(this._config, this.hass);
-    if (ids.length === 1) {
-      this._selectTapGroup(ids[0]!);
+    const pick = configured[0] ?? ids[0];
+    if (pick) {
+      this._selectTapGroup(pick);
     } else {
       this._drawingGroupId = null;
       this._draftTapPoints = [];
@@ -841,6 +1077,7 @@ export class SunflowFloorplanCard extends LitElement implements LovelaceCard {
     this._drawingGroupId = null;
     this._draftTapPoints = [];
     this._drawCursor = null;
+    this._dragTapIndex = null;
     this._syncDrawInteraction();
     this.requestUpdate();
   }
@@ -852,6 +1089,7 @@ export class SunflowFloorplanCard extends LitElement implements LovelaceCard {
     }
     this._live3d.setEditTopDown(false);
     this._live3d.setOrbitEnabled(false);
+    this._live3d.canvas.style.pointerEvents = this._editing ? "auto" : "none";
     this._live3d.canvas.style.cursor = this._drawingTap
       ? "crosshair"
       : this._editing
@@ -928,7 +1166,7 @@ export class SunflowFloorplanCard extends LitElement implements LovelaceCard {
     this.requestUpdate();
   }
 
-  private _tapAreaSvg(): unknown {
+  private _tapAreaOverlay(): unknown {
     const saved = Object.entries(this._config.groups ?? {}).filter(
       ([, g]) => g.tap_area && g.tap_area.length >= 3,
     );
@@ -939,16 +1177,11 @@ export class SunflowFloorplanCard extends LitElement implements LovelaceCard {
       return nothing;
     }
     const hue = groupHue(this._drawingGroupId ?? "x");
-    const cursor = this._drawCursor;
-    const rubberPts =
-      drafting && draftPts.length > 0 && cursor
-        ? [...draftPts, cursor]
-        : draftPts;
+    const dragging = this._dragTapIndex !== null;
+    const cursor = dragging ? null : this._drawCursor;
+    const showRubber = drafting && !dragging && draftPts.length > 0 && draftPts.length < 3;
+    const rubberPts = showRubber && cursor ? [...draftPts, cursor] : draftPts;
     const rubberLine = rubberPts.map(([l, t]) => `${l},${t}`).join(" ");
-    const closeHint =
-      drafting && draftPts.length >= 3 && cursor
-        ? `${draftPts[draftPts.length - 1]![0]},${draftPts[draftPts.length - 1]![1]} ${cursor[0]},${cursor[1]} ${draftPts[0]![0]},${draftPts[0]![1]}`
-        : "";
     const labelAt = (pts: [number, number][]): { x: number; y: number } | null => {
       if (pts.length === 0) {
         return null;
@@ -959,15 +1192,17 @@ export class SunflowFloorplanCard extends LitElement implements LovelaceCard {
     };
     const draftLabel = labelAt(draftPts);
     const needMore = Math.max(0, 3 - draftPts.length);
-
+    // Lit `html` puts children in the HTML namespace, so <circle>/<polygon>
+    // inside <svg> never paint. Use `svg` for every SVG descendant.
     return html`
       <svg
         class="sf-tap-areas ${this._drawingTap ? "sf-tap-drawing" : ""}"
         viewBox="0 0 100 100"
         preserveAspectRatio="none"
+        xmlns="http://www.w3.org/2000/svg"
       >
         ${this._drawingTap
-          ? html`<rect class="sf-tap-dim" x="0" y="0" width="100" height="100"></rect>`
+          ? svg`<rect class="sf-tap-dim" x="0" y="0" width="100" height="100"></rect>`
           : nothing}
         ${saved.map(([gid, g]) => {
           if (this._drawingTap && gid === this._drawingGroupId) {
@@ -976,14 +1211,14 @@ export class SunflowFloorplanCard extends LitElement implements LovelaceCard {
           const pts = (g.tap_area ?? []).map(([l, t]) => `${l},${t}`).join(" ");
           const gHue = groupHue(gid);
           const mid = labelAt((g.tap_area ?? []) as [number, number][]);
-          return html`
+          return svg`
             <polygon
               class="sf-tap-poly ${this._drawingTap ? "sf-tap-poly-muted" : ""}"
               points=${pts}
               style="--sf-group-hue:${gHue}"
             ></polygon>
             ${mid
-              ? html`<text
+              ? svg`<text
                   class="sf-tap-label ${this._drawingTap ? "sf-tap-label-muted" : ""}"
                   x=${mid.x}
                   y=${mid.y}
@@ -993,47 +1228,21 @@ export class SunflowFloorplanCard extends LitElement implements LovelaceCard {
           `;
         })}
         ${showDraft && draftPts.length >= 3
-          ? html`<polygon
+          ? svg`<polygon
               class="sf-tap-poly sf-tap-draft"
               points=${draftPts.map(([l, t]) => `${l},${t}`).join(" ")}
               style="--sf-group-hue:${hue}"
             ></polygon>`
           : nothing}
-        ${drafting && rubberPts.length >= 2
-          ? html`<polyline
+        ${drafting && showRubber && rubberPts.length >= 2
+          ? svg`<polyline
               class="sf-tap-rubber"
               points=${rubberLine}
               style="--sf-group-hue:${hue}"
             ></polyline>`
           : nothing}
-        ${closeHint
-          ? html`<polyline
-              class="sf-tap-close-hint"
-              points=${closeHint}
-              style="--sf-group-hue:${hue}"
-            ></polyline>`
-          : nothing}
-        ${drafting
-          ? draftPts.map(
-              ([l, t], i) => html`
-                <circle
-                  class="sf-tap-vertex ${i === draftPts.length - 1 ? "sf-tap-vertex-latest" : ""}"
-                  cx=${l}
-                  cy=${t}
-                  r="2.6"
-                  style="--sf-group-hue:${hue}"
-                ></circle>
-                <text
-                  class="sf-tap-vertex-num"
-                  x=${l}
-                  y=${t}
-                  style="--sf-group-hue:${hue}"
-                >${i + 1}</text>
-              `,
-            )
-          : nothing}
-        ${drafting && cursor
-          ? html`<circle
+        ${drafting && cursor && draftPts.length < 3
+          ? svg`<circle
               class="sf-tap-cursor"
               cx=${cursor[0]}
               cy=${cursor[1]}
@@ -1042,7 +1251,7 @@ export class SunflowFloorplanCard extends LitElement implements LovelaceCard {
             ></circle>`
           : nothing}
         ${draftLabel && this._drawingGroupId
-          ? html`<text
+          ? svg`<text
               class="sf-tap-label sf-tap-label-draft"
               x=${draftLabel.x}
               y=${draftLabel.y}
@@ -1050,17 +1259,34 @@ export class SunflowFloorplanCard extends LitElement implements LovelaceCard {
             >${this._drawingGroupId} (${draftPts.length})</text>`
           : nothing}
         ${this._drawingTap && !this._drawingGroupId
-          ? html`<text class="sf-tap-hint" x="50" y="50">Select a room chip to start drawing</text>`
+          ? svg`<text class="sf-tap-hint" x="50" y="50">Select a room chip to start drawing</text>`
           : nothing}
         ${drafting && draftPts.length === 0
-          ? html`<text class="sf-tap-hint" x="50" y="50">Click to place the first corner</text>`
+          ? svg`<text class="sf-tap-hint" x="50" y="50">Click to place the first corner</text>`
           : nothing}
         ${drafting && needMore > 0 && draftPts.length > 0
-          ? html`<text class="sf-tap-hint" x="50" y="8"
-              >${needMore} more click${needMore === 1 ? "" : "s"} to close the room</text
-            >`
+          ? svg`<text class="sf-tap-hint" x="50" y="8"
+              >${needMore} more click${needMore === 1 ? "" : "s"} to close the room</text>`
           : nothing}
       </svg>
+      ${drafting
+        ? html`<div class="sf-tap-pins" aria-hidden="true">
+            ${draftPts.map(
+              ([l, t], i) => html`
+                <div
+                  class="sf-tap-pin ${i === this._dragTapIndex
+                    ? "sf-tap-pin-dragging"
+                    : i === draftPts.length - 1
+                      ? "sf-tap-pin-latest"
+                      : ""}"
+                  style="left:${l}%;top:${t}%;--sf-group-hue:${hue}"
+                >
+                  ${i + 1}
+                </div>
+              `,
+            )}
+          </div>`
+        : nothing}
     `;
   }
 
@@ -1133,6 +1359,7 @@ export class SunflowFloorplanCard extends LitElement implements LovelaceCard {
     this._live3d.setHandlesVisible(this._editing);
     this._live3d.setEditTopDown(false);
     this._live3d.setOrbitEnabled(false);
+    canvas.style.pointerEvents = this._editing ? "auto" : "none";
     if (this._editing) {
       canvas.addEventListener("pointerdown", this._boundPointerDown, true);
       canvas.style.cursor = "grab";
@@ -1328,9 +1555,15 @@ export class SunflowFloorplanCard extends LitElement implements LovelaceCard {
               ? html` for <strong>${this._drawingGroupId}</strong>
                   — ${this._draftTapPoints.length} corner${this._draftTapPoints.length === 1
                     ? ""
-                    : "s"}`
+                    : "s"}${this._draftTapPoints.length > 0
+                    ? html` at
+                        ${this._draftTapPoints
+                          .map(([l, t]) => `${l.toFixed(0)},${t.toFixed(0)}`)
+                          .join(" · ")}`
+                    : nothing}`
               : html` — select a room chip first`}:
-            click corners on the map (≥3), then Finish.
+            numbered pins mark each click. Drag a pin to move it, click an edge
+            to insert a corner, double-click or right-click a pin to remove.
             <span class="sf-draw-actions">
               <button
                 ?disabled=${this._draftTapPoints.length === 0}
@@ -1372,8 +1605,13 @@ export class SunflowFloorplanCard extends LitElement implements LovelaceCard {
           : ""}"
         style="aspect-ratio: ${aspect}"
         @click=${this._onStageClick}
+        @pointerdown=${this._onStagePointerDown}
         @pointermove=${this._onStagePointerMove}
+        @pointerup=${this._onStagePointerUp}
+        @pointercancel=${this._onStagePointerUp}
         @pointerleave=${this._onStagePointerLeave}
+        @dblclick=${this._onStageDblClick}
+        @contextmenu=${this._onStageContextMenu}
       >
         ${mode === "baked" && this._useCssFallback && this._renders
           ? renderCssFallback(
@@ -1386,7 +1624,7 @@ export class SunflowFloorplanCard extends LitElement implements LovelaceCard {
               aspect,
             )
           : html`<div class="sf-canvas-host"></div>`}
-        ${this._tapAreaSvg()}
+        ${this._tapAreaOverlay()}
         ${!this._editing && !this._drawingTap
           ? html`
               <div class="sf-markers">
@@ -1526,6 +1764,7 @@ export class SunflowFloorplanCard extends LitElement implements LovelaceCard {
     .sf-stage {
       position: relative;
       width: 100%;
+      min-height: 280px;
       background: #111;
       border-radius: 8px;
       overflow: hidden;
@@ -1536,6 +1775,8 @@ export class SunflowFloorplanCard extends LitElement implements LovelaceCard {
     .sf-stage.sf-drawing-tap {
       cursor: crosshair;
       outline: 2px solid hsl(var(--sf-group-hue, 200) 65% 55%);
+      touch-action: none;
+      user-select: none;
     }
     .sf-stage.sf-drawing-tap .sf-canvas-host,
     .sf-stage.sf-drawing-tap .sf-gl {
@@ -1550,6 +1791,46 @@ export class SunflowFloorplanCard extends LitElement implements LovelaceCard {
       pointer-events: none;
       z-index: 5;
       overflow: visible;
+    }
+    .sf-tap-pins {
+      position: absolute;
+      inset: 0;
+      z-index: 40;
+      pointer-events: none;
+    }
+    .sf-tap-pin {
+      position: absolute;
+      transform: translate(-50%, -50%);
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      background: hsl(var(--sf-group-hue, 200) 80% 48%);
+      border: 2px solid #fff;
+      color: #fff;
+      font-size: 12px;
+      font-weight: 800;
+      line-height: 24px;
+      text-align: center;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.55);
+    }
+    .sf-tap-pin-latest {
+      background: #fff;
+      color: #111;
+      border-color: hsl(var(--sf-group-hue, 200) 90% 45%);
+      box-shadow: 0 0 0 3px hsl(var(--sf-group-hue, 200) 80% 50% / 0.45),
+        0 2px 8px rgba(0, 0, 0, 0.55);
+    }
+    .sf-tap-pin-dragging {
+      width: 34px;
+      height: 34px;
+      line-height: 30px;
+      font-size: 13px;
+      background: #fff;
+      color: #111;
+      border-color: hsl(var(--sf-group-hue, 200) 90% 40%);
+      box-shadow: 0 0 0 4px hsl(var(--sf-group-hue, 200) 80% 50% / 0.55),
+        0 4px 12px rgba(0, 0, 0, 0.6);
+      z-index: 1;
     }
     .sf-tap-dim {
       fill: rgba(8, 10, 14, 0.38);

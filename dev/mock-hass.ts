@@ -80,6 +80,7 @@ export class MockHass {
         area_id: room ?? null,
       };
     }
+    this.setSun(180, 42);
   }
 
   subscribe(fn: HassListener): () => void {
@@ -114,6 +115,19 @@ export class MockHass {
         color_mode: "brightness",
       };
     }
+    this.notify();
+  }
+
+  setSun(azimuth: number, elevation: number): void {
+    this.states["sun.sun"] = {
+      entity_id: "sun.sun",
+      state: elevation > 0 ? "above_horizon" : "below_horizon",
+      attributes: {
+        friendly_name: "Sun",
+        azimuth,
+        elevation,
+      },
+    };
     this.notify();
   }
 

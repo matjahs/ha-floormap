@@ -1,0 +1,256 @@
+{
+  "source": "appartement9.blend",
+  "units": "cm",
+  "gltfScale": 100.0,
+  "planNorthDeg": 180.0,
+  "floorLevel": 10,
+  "camera": {
+    "name": "DollhouseCam",
+    "eye": [
+      790.324,
+      3530.952,
+      904.082
+    ],
+    "target": [
+      790.324,
+      0.0,
+      904.082
+    ],
+    "fovDeg": 39.598
+  },
+  "bounds": {
+    "min": [
+      -15.831,
+      -163.959,
+      -9.8
+    ],
+    "max": [
+      1507.87,
+      1470.843,
+      262.144
+    ]
+  },
+  "fixtures": [
+    {
+      "id": "L01",
+      "name": "Living ceiling 4",
+      "kind": "point",
+      "position": [
+        263.504,
+        547.005,
+        209.0
+      ],
+      "color": "#fff2d6",
+      "power": 1.0
+    },
+    {
+      "id": "L02",
+      "name": "Living ceiling 2",
+      "kind": "point",
+      "position": [
+        563.303,
+        531.445,
+        209.0
+      ],
+      "color": "#fff2d6",
+      "power": 1.0
+    },
+    {
+      "id": "L03",
+      "name": "Living ceiling 3",
+      "kind": "point",
+      "position": [
+        588.305,
+        930.272,
+        209.0
+      ],
+      "color": "#fff2d6",
+      "power": 1.0
+    },
+    {
+      "id": "L04",
+      "name": "Dining pendant",
+      "kind": "point",
+      "position": [
+        286.948,
+        1096.192,
+        135.0
+      ],
+      "color": "#fff2d6",
+      "power": 1.0
+    },
+    {
+      "id": "L05",
+      "name": "HEKTAR floor",
+      "kind": "point",
+      "position": [
+        731.24,
+        572.744,
+        165.279
+      ],
+      "color": "#fff2d6",
+      "power": 1.0
+    },
+    {
+      "id": "L06",
+      "name": "Kitchen pendant",
+      "kind": "point",
+      "position": [
+        564.492,
+        1113.093,
+        182.389
+      ],
+      "color": "#fff2d6",
+      "power": 1.0
+    },
+    {
+      "id": "L07",
+      "name": "Kitchen LED island",
+      "kind": "point",
+      "position": [
+        559.462,
+        1090.114,
+        88.0
+      ],
+      "color": "#fff2d6",
+      "power": 1.0
+    },
+    {
+      "id": "L08",
+      "name": "Kitchen LED pantry",
+      "kind": "point",
+      "position": [
+        409.331,
+        1307.669,
+        171.972
+      ],
+      "color": "#fff2d6",
+      "power": 1.0
+    },
+    {
+      "id": "L09",
+      "name": "Kitchen LED fridge",
+      "kind": "point",
+      "position": [
+        744.106,
+        1282.915,
+        224.902
+      ],
+      "color": "#fff2d6",
+      "power": 1.0
+    },
+    {
+      "id": "L10",
+      "name": "Bedroom 1",
+      "kind": "point",
+      "position": [
+        1023.647,
+        653.739,
+        209.0
+      ],
+      "color": "#fff2d6",
+      "power": 1.0
+    },
+    {
+      "id": "L11",
+      "name": "Bedroom 2",
+      "kind": "point",
+      "position": [
+        1035.728,
+        855.479,
+        209.0
+      ],
+      "color": "#fff2d6",
+      "power": 1.0
+    },
+    {
+      "id": "L12",
+      "name": "Office A",
+      "kind": "point",
+      "position": [
+        1352.04,
+        1027.791,
+        209.0
+      ],
+      "color": "#fff2d6",
+      "power": 1.0
+    },
+    {
+      "id": "L13",
+      "name": "Office B",
+      "kind": "point",
+      "position": [
+        1341.911,
+        807.212,
+        209.0
+      ],
+      "color": "#fff2d6",
+      "power": 1.0
+    },
+    {
+      "id": "L14",
+      "name": "Hallway 1",
+      "kind": "point",
+      "position": [
+        1183.713,
+        1334.766,
+        209.0
+      ],
+      "color": "#fff2d6",
+      "power": 1.0
+    },
+    {
+      "id": "L15",
+      "name": "Hallway 2",
+      "kind": "point",
+      "position": [
+        908.297,
+        1062.716,
+        209.0
+      ],
+      "color": "#fff2d6",
+      "power": 1.0
+    },
+    {
+      "id": "L16",
+      "name": "Toilet",
+      "kind": "point",
+      "position": [
+        1035.539,
+        1169.179,
+        209.0
+      ],
+      "color": "#fff2d6",
+      "power": 1.0
+    },
+    {
+      "id": "L17",
+      "name": "Bathroom",
+      "kind": "point",
+      "position": [
+        936.615,
+        1282.578,
+        252.0
+      ],
+      "color": "#fff2d6",
+      "power": 1.0
+    },
+    {
+      "id": "L18",
+      "name": "Utility",
+      "kind": "point",
+      "position": [
+        1371.031,
+        1213.42,
+        199.0
+      ],
+      "color": "#fff2d6",
+      "power": 1.0
+    }
+  ],
+  "ceilings": {
+    "namePrefix": "sfCeiling_",
+    "cameraVisible": false,
+    "castShadow": true
+  }
+}

@@ -4,6 +4,10 @@ import { CARD_TYPE, SunflowFloorplanCard } from "../src/card";
 import { overridesToPlacements } from "../src/pose";
 import { entityIdsFromConfig, playgroundConfig } from "./playground-config";
 import { MockHass, registerHaStubs } from "./mock-hass";
+import { approximateSun, playgroundSunPresets } from "../src/sun";
+import { mountCompassOverlay } from "./compass-overlay";
+
+const SUN_PRESETS = playgroundSunPresets();
 
 registerHaStubs();
 
@@ -59,6 +63,29 @@ function renderToggles(): void {
   }
 }
 
+let sunFollowClock = true;
+const sunStatusEl = document.querySelector("#sun-status") as HTMLElement | null;
+
+function refreshSunStatus(): void {
+  const st = mock.states["sun.sun"];
+  const az = Number(st?.attributes.azimuth ?? 0);
+  const el = Number(st?.attributes.elevation ?? 0);
+  if (sunStatusEl) {
+    sunStatusEl.textContent = `${st?.state ?? "?"} · azimuth ${az.toFixed(0)}° · elevation ${el.toFixed(0)}°${sunFollowClock ? " (clock)" : ""}`;
+  }
+}
+
+function applySun(azimuth: number, elevation: number, followClock: boolean): void {
+  sunFollowClock = followClock;
+  mock.setSun(azimuth, elevation);
+  refreshSunStatus();
+}
+
+function applyClockSun(): void {
+  const pose = approximateSun(new Date());
+  applySun(pose.azimuth, pose.elevation, true);
+}
+
 function refreshExport(): void {
   if (!exportEl) {
     return;
@@ -67,7 +94,10 @@ function refreshExport(): void {
   exportEl.value = JSON.stringify(placements, null, 2);
 }
 
+let disposeCompass: (() => void) | null = null;
+
 function mountCard(): void {
+  disposeCompass?.();
   stageEl.replaceChildren();
   card = new SunflowFloorplanCard();
   card.addEventListener("config-changed", ((ev: CustomEvent<{ config: SunflowFloorplanCardConfig }>) => {
@@ -78,6 +108,7 @@ function mountCard(): void {
   card.setConfig(liveConfig);
   syncCardHass();
   stageEl.append(card);
+  disposeCompass = mountCompassOverlay(stageEl, { getCard: () => card });
   refreshExport();
   setStatus(
     [
@@ -145,6 +176,31 @@ document.querySelector("#btn-export")?.addEventListener("click", () => {
   downloadPlacements();
 });
 
+document.querySelector("#sun-dawn")?.addEventListener("click", () => {
+  applySun(SUN_PRESETS.dawn.azimuth, SUN_PRESETS.dawn.elevation, false);
+});
+document.querySelector("#sun-noon")?.addEventListener("click", () => {
+  applySun(SUN_PRESETS.noon.azimuth, SUN_PRESETS.noon.elevation, false);
+});
+document.querySelector("#sun-afternoon")?.addEventListener("click", () => {
+  applySun(SUN_PRESETS.afternoon.azimuth, SUN_PRESETS.afternoon.elevation, false);
+});
+document.querySelector("#sun-sunset")?.addEventListener("click", () => {
+  applySun(SUN_PRESETS.sunset.azimuth, SUN_PRESETS.sunset.elevation, false);
+});
+document.querySelector("#sun-night")?.addEventListener("click", () => {
+  applySun(SUN_PRESETS.night.azimuth, SUN_PRESETS.night.elevation, false);
+});
+document.querySelector("#sun-now")?.addEventListener("click", () => {
+  applyClockSun();
+});
+
+window.setInterval(() => {
+  if (sunFollowClock) {
+    applyClockSun();
+  }
+}, 30000);
+
 window.addEventListener("error", (ev) => {
   setStatus(`window error: ${ev.message}`, true);
 });
@@ -154,4 +210,5 @@ window.addEventListener("unhandledrejection", (ev) => {
 
 mountCard();
 renderToggles();
+applyClockSun();
 void probeAssets();

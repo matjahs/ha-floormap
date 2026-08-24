@@ -1,12 +1,20 @@
 import type { FloorplanIR, CameraIR } from "../../import/ir";
 import { pointInPolygon } from "../../import/ir";
 import type { LightParams, Vec3 } from "../../types";
+import type { SunShading } from "../../sun";
 import {
   resolveFixtureKind,
   resolveStripSamples,
   stripSamplePositions,
 } from "../../strip";
 import { groupHue } from "../../groups";
+import { isCeilingObject } from "./ceilings";
+import {
+  geographicNorthRenderDir,
+  horizontalDirToScreenDeg,
+  PLAN_NORTH_RENDER_DIR,
+  type CompassBearings,
+} from "../../compass";
 import type {
   WebGLRenderer,
   Scene,
@@ -45,6 +53,10 @@ export interface Live3dHandle {
     clientY: number,
     allowedIds?: Set<string>,
   ): string | null;
+  /** Drive directional sun / ambient from HA sun.sun (or clock fallback). */
+  setSun(shading: SunShading): void;
+  /** Screen bearings for geographic N, plan +Y, and sun (playground compass). */
+  getCompassBearings(): CompassBearings;
   resize(width: number, height: number): void;
   render(): void;
   dispose(): void;
@@ -62,6 +74,10 @@ export interface Live3dOptions {
   editableFixtureLabels?: Record<string, string>;
   /** Room/tag id per fixture — colors edit markers by room. */
   editableFixtureRooms?: Record<string, string>;
+  /** Full-scene GLB (Blender export). Skips extruded FML/SH3D meshes. */
+  sceneGltfUrl?: string;
+  /** Compass heading of plan +Y (degrees geographic). Default 0. */
+  planNorthDeg?: number;
 }
 
 function planToRender(pos: Vec3): { x: number; y: number; z: number } {
@@ -71,6 +87,53 @@ function planToRender(pos: Vec3): { x: number; y: number; z: number } {
 
 function renderToPlan(x: number, y: number, z: number): Vec3 {
   return { x, y: z, z: y };
+}
+
+/**
+ * Export tags Blender Ceilings with this prefix (avoid matching "Living ceiling" fixtures).
+ * Ceilings stay on the default layer so they cast into the sun shadow map. WebGLShadowMap
+ * tests casters against the *main* camera layers, so a separate hidden layer never works.
+ */
+import { CEILING_NAME_RE, isCeilingObject } from "./ceilings";
+import {
+  isTransparentGlassMaterial,
+  simplifyGltfMaterial,
+} from "./gltf-materials";
+
+/** Collapse glTF PBR materials — see gltf-materials.ts */
+function assignSimplifiedMaterials(
+  mesh: Mesh,
+  THREE: typeof import("three"),
+): void {
+  if (Array.isArray(mesh.material)) {
+    mesh.material = mesh.material.map((m) => simplifyGltfMaterial(m, THREE, mesh.name));
+    return;
+  }
+  mesh.material = simplifyGltfMaterial(mesh.material, THREE, mesh.name);
+}
+
+function prepareGltfMesh(
+  mesh: Mesh,
+  THREE: typeof import("three"),
+  opts: { ceiling?: boolean; castShadow?: boolean; receiveShadow?: boolean },
+): void {
+  assignSimplifiedMaterials(mesh, THREE);
+  const ceiling = opts.ceiling ?? isCeilingObject(mesh);
+  const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+  const glass = mats.every((m) => isTransparentGlassMaterial(m));
+  mesh.castShadow = opts.castShadow ?? (ceiling && !glass);
+  mesh.receiveShadow = opts.receiveShadow ?? !ceiling;
+  if (ceiling) {
+    for (const m of mats) {
+      // Invisible in dollhouse color pass; WebGLShadowMap still depth-renders casters.
+      m.colorWrite = false;
+      m.depthWrite = false;
+      m.side = THREE.DoubleSide;
+    }
+    mesh.customDepthMaterial = new THREE.MeshDepthMaterial({
+      side: THREE.DoubleSide,
+    });
+  }
 }
 
 /**
@@ -93,30 +156,102 @@ export async function createLive3dRenderer(
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 0.85;
-  // Top-down plan view: shadows add little and some three.js versions leave a
-  // tiny SCISSOR_BOX after the shadow pass, so the plan never fills the canvas.
-  renderer.shadowMap.enabled = false;
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   renderer.setClearColor(0xe6e6e4, 1);
 
   const scene: Scene = new THREE.Scene();
-  // Locked miniature dollhouse: light grey void like Floorplanner.
   scene.background = new THREE.Color("#e6e6e4");
 
   const camera: PerspectiveCamera = new THREE.PerspectiveCamera(50, 1, 1, 100000);
   const lookTarget = new THREE.Vector3();
 
-  // Dim base fill so “all lights off” reads as night; point lights carry the scene.
-  const amb = new THREE.AmbientLight(0xb8b4ac, 0.22);
+  const useSceneMesh = Boolean(opts.sceneGltfUrl);
+  const fixtureLightScale = useSceneMesh ? 680 : 1400;
+  // Blender GLB has no baked lighting; keep readable when HA lights are off.
+  const amb = new THREE.AmbientLight(0xb8b4ac, useSceneMesh ? 0.58 : 0.22);
   scene.add(amb);
 
-  const sun = new THREE.DirectionalLight(0xfff5ea, 0.16);
-  sun.position.set(600, 1100, 500);
-  sun.castShadow = false;
-  scene.add(sun);
+  const planCx = (ir.bounds.min.x + ir.bounds.max.x) / 2;
+  const planCz = (ir.bounds.min.y + ir.bounds.max.y) / 2;
+  const planW = Math.max(100, ir.bounds.max.x - ir.bounds.min.x);
+  const planD = Math.max(100, ir.bounds.max.y - ir.bounds.min.y);
+  const sunDist = Math.max(2500, Math.hypot(planW, planD) * 1.4);
+  const shadowExtent = Math.max(planW, planD) * 0.88;
 
-  const fill = new THREE.DirectionalLight(0xe8eef5, 0.08);
-  fill.position.set(-400, 600, -300);
+  const sun = new THREE.DirectionalLight(0xfff5ea, useSceneMesh ? 0.85 : 0.16);
+  sun.position.set(planCx + 600, 1100, planCz + 500);
+  sun.castShadow = true;
+  sun.shadow.mapSize.set(2048, 2048);
+  sun.shadow.bias = -0.00015;
+  sun.shadow.normalBias = 0.8;
+  sun.shadow.camera.left = -shadowExtent;
+  sun.shadow.camera.right = shadowExtent;
+  sun.shadow.camera.top = shadowExtent;
+  sun.shadow.camera.bottom = -shadowExtent;
+  sun.shadow.camera.near = 10;
+  sun.shadow.camera.far = sunDist * 2.2;
+  sun.target.position.set(planCx, 0, planCz);
+  scene.add(sun);
+  scene.add(sun.target);
+
+  const fill = new THREE.DirectionalLight(0xe8eef5, useSceneMesh ? 0.35 : 0.08);
+  fill.position.set(planCx - 400, 600, planCz - 300);
+  fill.castShadow = false;
   scene.add(fill);
+
+  let lastSun: SunShading | null = null;
+  let lastSunAzimuth: number | null = null;
+  let lastSunElevation: number | null = null;
+  const planNorthConfigDeg = opts.planNorthDeg ?? 0;
+  const cameraBasis = new Float64Array(6);
+
+  const applySun = (shading: SunShading): void => {
+    lastSun = shading;
+    // GLB scene: keep ambient low when sun is active so ceiling shadows read.
+    const sceneAmbScale = useSceneMesh ? 0.38 : 0.38;
+    const sceneFillScale = useSceneMesh ? 0.48 : 0.24;
+    const sceneSunScale = useSceneMesh ? 1.12 : 0.22;
+
+    if (!shading.enabled) {
+      amb.color.setHex(0xb8b4ac);
+      amb.intensity = useSceneMesh ? 0.58 : 0.22;
+      sun.color.setHex(0xfff5ea);
+      sun.intensity = useSceneMesh ? 0.72 : 0.16;
+      sun.position.set(planCx + 600, 1100, planCz + 500);
+      sun.castShadow = useSceneMesh;
+      fill.color.setHex(0xe8eef5);
+      fill.intensity = useSceneMesh ? 0.22 : 0.08;
+      fill.position.set(planCx - 400, 600, planCz - 300);
+      scene.background = new THREE.Color("#e6e6e4");
+      renderer.setClearColor(0xe6e6e4, 1);
+      sun.target.position.set(planCx, shading.targetElevationCm, planCz);
+      return;
+    }
+    const d = shading.direction;
+    const lift = Math.max(0.04, d.y);
+    sun.position.set(planCx + d.x * sunDist, lift * sunDist, planCz + d.z * sunDist);
+    sun.target.position.set(planCx, shading.targetElevationCm, planCz);
+    sun.color.setRGB(shading.sunColor[0], shading.sunColor[1], shading.sunColor[2]);
+    sun.intensity = shading.sunIntensity * sceneSunScale;
+    sun.castShadow = useSceneMesh && shading.sunIntensity > 0.02;
+    amb.color.setRGB(
+      shading.ambientColor[0],
+      shading.ambientColor[1],
+      shading.ambientColor[2],
+    );
+    amb.intensity = shading.ambientIntensity * sceneAmbScale;
+    fill.position.set(
+      planCx - d.x * sunDist * 0.55,
+      Math.max(400, Math.abs(d.y) * sunDist * 0.4),
+      planCz - d.z * sunDist * 0.55,
+    );
+    fill.color.setRGB(shading.fillColor[0], shading.fillColor[1], shading.fillColor[2]);
+    fill.intensity = shading.fillIntensity * sceneFillScale;
+    const sky = new THREE.Color().setRGB(shading.sky[0], shading.sky[1], shading.sky[2]);
+    scene.background = sky;
+    renderer.setClearColor(sky, 1);
+  };
 
   const texLoader = new THREE.TextureLoader();
   const texCache = new Map<string, import("three").Texture>();
@@ -141,7 +276,7 @@ export async function createLive3dRenderer(
   };
 
   // Full-plan slab so the stage is never an empty clear-color void.
-  {
+  if (!useSceneMesh) {
     const minX = ir.bounds.min.x;
     const maxX = ir.bounds.max.x;
     const minZ = ir.bounds.min.y;
@@ -158,6 +293,7 @@ export async function createLive3dRenderer(
     scene.add(ground);
   }
 
+  if (!useSceneMesh) {
   for (const room of ir.rooms) {
     if (room.polygon.length < 3) {
       continue;
@@ -208,6 +344,7 @@ export async function createLive3dRenderer(
     mesh.position.y = elev + (map ? 1.5 : 0);
     mesh.receiveShadow = true;
     scene.add(mesh);
+  }
   }
 
   // Interior: RAL 9010 (home photos). Exterior cladding: Floorplanner FML textures.
@@ -275,6 +412,7 @@ export async function createLive3dRenderer(
       ? ir.environment.wallSectionHeight
       : undefined;
   // Openings aren't keyed by wall id in IR; match by proximity to wall segment.
+  if (!useSceneMesh) {
   for (const wall of ir.walls) {
     const dx = wall.end.x - wall.start.x;
     const dy = wall.end.y - wall.start.y;
@@ -378,6 +516,7 @@ export async function createLive3dRenderer(
       scene.add(mesh);
     }
   }
+  }
 
   // Debug probe removed after verifying TextureLoader.
 
@@ -422,6 +561,23 @@ export async function createLive3dRenderer(
       return null;
     }
   };
+
+  if (opts.sceneGltfUrl) {
+    const root = await loadGltf(opts.sceneGltfUrl);
+    if (!root) {
+      throw new Error(`Failed to load Blender scene GLB: ${opts.sceneGltfUrl}`);
+    }
+    const gltfScale = 100;
+    root.scale.setScalar(gltfScale);
+    root.traverse((obj) => {
+      if (!(obj as Mesh).isMesh) {
+        return;
+      }
+      prepareGltfMesh(obj as Mesh, THREE, {});
+    });
+    scene.add(root);
+    sun.shadow.needsUpdate = true;
+  }
 
   const fitPlanar = (
     root: Object3D,
@@ -489,6 +645,7 @@ export async function createLive3dRenderer(
     scene.add(group);
   };
 
+  if (!useSceneMesh) {
   for (const opening of ir.openings) {
     const elev = ir.levels.find((l) => l.id === opening.levelId)?.elevation ?? 0;
     const drawH = sectionCap
@@ -508,19 +665,18 @@ export async function createLive3dRenderer(
         return;
       }
       const mesh = obj as Mesh;
-      mesh.castShadow = true;
-      mesh.receiveShadow = true;
-      const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
-      for (const m of mats) {
-        const std = m as import("three").MeshStandardMaterial;
-        if (std?.map) {
-          std.map.colorSpace = THREE.SRGBColorSpace;
-        }
-        if (std) {
-          std.transparent = true;
-          std.opacity = opening.kind === "window" ? 0.85 : 1;
-          std.side = THREE.DoubleSide;
-          std.needsUpdate = true;
+      prepareGltfMesh(mesh, THREE, {
+        castShadow: false,
+        receiveShadow: true,
+      });
+      const matList = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+      for (const m of matList) {
+        const lambert = m as import("three").MeshLambertMaterial;
+        if (lambert.isMeshLambertMaterial) {
+          lambert.transparent = true;
+          lambert.opacity = opening.kind === "window" ? 0.85 : 1;
+          lambert.side = THREE.DoubleSide;
+          lambert.needsUpdate = true;
         }
       }
     });
@@ -569,19 +725,10 @@ export async function createLive3dRenderer(
         if (!(obj as Mesh).isMesh) {
           return;
         }
-        const mesh = obj as Mesh;
-        mesh.castShadow = true;
-        mesh.receiveShadow = true;
-        const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
-        for (const m of mats) {
-          const std = m as import("three").MeshStandardMaterial;
-          if (std?.map) {
-            std.map.colorSpace = THREE.SRGBColorSpace;
-          }
-          if (std) {
-            std.needsUpdate = true;
-          }
-        }
+        prepareGltfMesh(obj as Mesh, THREE, {
+          castShadow: false,
+          receiveShadow: true,
+        });
       });
       const elev = ir.levels.find((l) => l.id === furn.levelId)?.elevation ?? 0;
       root.scale.setScalar(M_TO_CM);
@@ -608,6 +755,7 @@ export async function createLive3dRenderer(
       }
       scene.add(root);
     }
+  }
   }
 
   const lights = new Map<string, PointLight[]>();
@@ -787,7 +935,8 @@ export async function createLive3dRenderer(
       const pl = new THREE.PointLight(col, 0, fx.diameter ? fx.diameter * 20 : 400, 2);
       const r = planToRender(pose);
       pl.position.set(r.x, r.y, r.z);
-      pl.castShadow = true;
+      // Only the sun casts shadow maps; HA fixture lights would exceed WebGL texture units.
+      pl.castShadow = false;
       scene.add(pl);
       group.push(pl);
     }
@@ -827,56 +976,55 @@ export async function createLive3dRenderer(
   };
 
   const applyDollhouseView = () => {
-    // Prefer Floorplanner "Bird View" XY (user-marked prior camera spot) and the
-    // high "floorplan" camera height when present — steeper miniature top-down,
-    // not the oblique corner orbit.
+    // Fit the plan to the canvas. The Blender DollhouseCam sits ~35 m up for
+    // Cycles plates; using that eye in live3d leaves the apartment as a dark
+    // island in a gray void, so we keep only its look direction / FOV.
     const minX = ir.bounds.min.x;
     const maxX = ir.bounds.max.x;
     const minZ = ir.bounds.min.y;
     const maxZ = ir.bounds.max.y;
     const cx = (minX + maxX) / 2;
     const cz = (minZ + maxZ) / 2;
-    const span = Math.max(maxX - minX, maxZ - minZ) * 1.08;
+    const spanX = Math.max(100, maxX - minX);
+    const spanZ = Math.max(100, maxZ - minZ);
+    const span = Math.max(spanX, spanZ) * 1.06;
     const aspect = Math.max(0.5, camera.aspect || 16 / 9);
+    const view = ir.environment.dollhouseView;
     const bird = ir.cameras.find((c) => /bird\s*view/i.test(c.name ?? ""));
     const floorCam = ir.cameras.find((c) => /^floorplan$/i.test(c.name ?? ""));
-    const fovRad = bird?.fieldOfView ?? floorCam?.fieldOfView ?? (52 * Math.PI) / 180;
+    const fovDeg = view?.fovDeg ?? 42;
+    const fovRad = view
+      ? (fovDeg * Math.PI) / 180
+      : bird?.fieldOfView ?? floorCam?.fieldOfView ?? (52 * Math.PI) / 180;
     const hFov = 2 * Math.atan(Math.tan(fovRad / 2) * aspect);
     const fitDist = Math.max(
       span / 2 / Math.tan(fovRad / 2),
-      span / 2 / Math.tan(hFov / 2),
+      spanX / 2 / Math.tan(hFov / 2),
+      spanZ / 2 / Math.tan(fovRad / 2),
     );
-    // Bird View in FML is often stored at standing height; dollhouse needs the
-    // high floorplan altitude (or fit distance) so the whole plan is in frame.
     const elev = opts.levelElevation ?? 0;
-    const height = Math.max(
-      floorCam && floorCam.z > 400 ? floorCam.z : 0,
-      fitDist * 0.98,
-      1100,
-    );
-    // Ground projection of the prior camera (Bird View XY), falling back to center.
-    const baseX = bird?.x ?? floorCam?.x ?? cx;
-    const baseZ = bird?.y ?? floorCam?.y ?? cz;
-    // Slight tilt toward plan center so walls keep a touch of depth.
-    const polar = 0.22;
+    const height = Math.max(fitDist * 0.9, 400);
+    const polar = 0.26;
+    const baseX = view?.eye.x ?? bird?.x ?? floorCam?.x ?? cx;
+    const baseZ = view?.eye.z ?? bird?.y ?? floorCam?.y ?? cz;
     const toCx = cx - baseX;
     const toCz = cz - baseZ;
     const az = Math.hypot(toCx, toCz) > 1 ? Math.atan2(toCz, toCx) : -Math.PI / 2;
     const horiz = Math.sin(polar) * height;
     const eye = {
-      x: baseX - Math.cos(az) * horiz,
+      x: cx - Math.cos(az) * horiz,
       y: elev + Math.cos(polar) * height,
-      z: baseZ - Math.sin(az) * horiz,
+      z: cz - Math.sin(az) * horiz,
     };
-    const target = { x: cx, y: elev + 35, z: cz };
+    const target = { x: cx, y: elev + 40, z: cz };
     camera.fov = (fovRad * 180) / Math.PI;
     camera.up.set(0, 1, 0);
     camera.position.set(eye.x, eye.y, eye.z);
     lookTarget.set(target.x, target.y, target.z);
     camera.lookAt(lookTarget);
+    camera.near = Math.max(10, height / 80);
+    camera.far = Math.max(200000, height * 20);
     camera.updateProjectionMatrix();
-    scene.background = new THREE.Color("#e6e6e4");
-    renderer.setClearColor(0xe6e6e4, 1);
   };
 
   const applyCamera = (_cam: CameraIR) => {
@@ -916,7 +1064,7 @@ export async function createLive3dRenderer(
         return;
       }
       for (const pl of group) {
-        pl.intensity = params.on ? params.intensity * 1400 : 0;
+        pl.intensity = params.on ? params.intensity * fixtureLightScale : 0;
         pl.color.setRGB(params.color[0], params.color[1], params.color[2]);
       }
       // Floor markers stay a fixed high-contrast style while editing.
@@ -932,7 +1080,7 @@ export async function createLive3dRenderer(
         if (!params) {
           continue;
         }
-        pl.intensity = params.on ? params.intensity * 1400 : 0;
+        pl.intensity = params.on ? params.intensity * fixtureLightScale : 0;
         pl.color.setRGB(params.color[0], params.color[1], params.color[2]);
       }
     },
@@ -1019,12 +1167,53 @@ export async function createLive3dRenderer(
       }
       return null;
     },
+    setSun(shading) {
+      lastSunAzimuth = shading.sourceAzimuth ?? null;
+      lastSunElevation = shading.sourceElevation ?? null;
+      applySun(shading);
+    },
+    getCompassBearings(): CompassBearings {
+      camera.updateMatrixWorld(true);
+      const right = new THREE.Vector3();
+      const up = new THREE.Vector3();
+      const forward = new THREE.Vector3();
+      camera.matrixWorld.extractBasis(right, up, forward);
+      cameraBasis[0] = right.x;
+      cameraBasis[1] = right.y;
+      cameraBasis[2] = right.z;
+      cameraBasis[3] = up.x;
+      cameraBasis[4] = up.y;
+      cameraBasis[5] = up.z;
+
+      const geo = geographicNorthRenderDir(planNorthConfigDeg);
+      let sunScreenDeg: number | null = null;
+      if (lastSun?.enabled && lastSun.sunIntensity > 0.02) {
+        const d = lastSun.direction;
+        sunScreenDeg = horizontalDirToScreenDeg(-d.x, -d.z, cameraBasis);
+      }
+
+      return {
+        geographicNorthScreenDeg: horizontalDirToScreenDeg(geo.x, geo.z, cameraBasis),
+        planNorthScreenDeg: horizontalDirToScreenDeg(
+          PLAN_NORTH_RENDER_DIR.x,
+          PLAN_NORTH_RENDER_DIR.z,
+          cameraBasis,
+        ),
+        planNorthConfigDeg,
+        sunScreenDeg,
+        sunAzimuthDeg: lastSunAzimuth,
+        sunElevationDeg: lastSunElevation,
+      };
+    },
     resize(width, height) {
       camera.aspect = width / Math.max(1, height);
       camera.updateProjectionMatrix();
       renderer.setSize(width, height, false);
       // Re-frame dollhouse now that aspect is known.
       applyDollhouseView();
+      if (lastSun) {
+        applySun(lastSun);
+      }
     },
     render() {
       // Ensure prior shadow/viewport passes cannot clip the main view.

@@ -8,9 +8,17 @@ export function validateConfig(config: unknown): SunflowFloorplanCardConfig {
   if (!cfg.type) {
     throw new Error("Invalid configuration: missing type");
   }
-  if (!cfg.manifest && !cfg.ir && !cfg.renders && !cfg.entities && !cfg.fml) {
+  if (
+    !cfg.manifest &&
+    !cfg.ir &&
+    !cfg.renders &&
+    !cfg.entities &&
+    !cfg.fml &&
+    !cfg.scene_glb &&
+    !cfg.scene
+  ) {
     throw new Error(
-      "Invalid configuration: provide manifest, fml, or inline ir/renders/entities",
+      "Invalid configuration: provide manifest, scene_glb, fml, or inline ir/renders/entities",
     );
   }
   if (cfg.render?.mode && cfg.render.mode !== "baked" && cfg.render.mode !== "live3d") {
@@ -20,6 +28,21 @@ export function validateConfig(config: unknown): SunflowFloorplanCardConfig {
     const tm = cfg.render.tone_map;
     if (tm !== "aces" && tm !== "reinhard" && tm !== "none") {
       throw new Error(`Invalid render.tone_map: ${tm}`);
+    }
+  }
+  if (cfg.render?.north !== undefined) {
+    if (typeof cfg.render.north !== "number" || !Number.isFinite(cfg.render.north)) {
+      throw new Error("render.north must be a finite number of degrees");
+    }
+  }
+  if (cfg.render?.floor_level !== undefined) {
+    if (typeof cfg.render.floor_level !== "number" || cfg.render.floor_level < 1) {
+      throw new Error("render.floor_level must be a number >= 1");
+    }
+  }
+  if (cfg.render?.floor_height_m !== undefined) {
+    if (typeof cfg.render.floor_height_m !== "number" || cfg.render.floor_height_m <= 0) {
+      throw new Error("render.floor_height_m must be a positive number");
     }
   }
   if (cfg.entities) {

@@ -28,6 +28,34 @@ depend on SweetHome3DJS (GPL).
 
 This repository never writes to your HA `/config`. You copy assets yourself.
 
+## Live 3D from the Blender apartment
+
+The Waalbandijk dollhouse **must** use `appartement.blend` (not Floorplanner FML).
+
+1. Export the scene (meshes + L01–L18 sidecar):
+
+```bash
+npm run playground:blender
+```
+
+That writes `dev/public/local/floorplan/appartement.glb` (gitignored) and
+`appartement.scene.json`. Copy both to `/config/www/floorplan/` on HA.
+
+2. Card config:
+
+```yaml
+type: custom:sunflow-floorplan-card
+scene_glb: /local/floorplan/appartement.glb
+scene: /local/floorplan/appartement.scene.json
+render:
+  mode: live3d
+```
+
+Fixture ids are `L01`–`L18` (Blender Lighting collections). See
+`examples/ground-floor.yaml`. The baked picture-elements overlays live in the
+appartement project (`dollhouse_card.yaml`). Ceilings are omitted on export so
+the locked DollhouseCam can see in.
+
 ## Local playground (debug without HA)
 
 Run the card in the browser with a mock `hass` and your SunFlow overlays / IR:
@@ -162,6 +190,9 @@ fml_glb_map: /local/floorplan/waalbandijk.glb-map.json  # optional refid→URL
 live3d then uses FML walls/rooms/furniture meshes (textured GLBs) while keeping light
 fixtures from the SweetHome3D `manifest` IR. DXF export is supported via the existing
 importer; the ZIP package is FML + preview JPG (not a single scene GLB).
+
+For this apartment, prefer **`scene_glb`** from `appartement.blend` instead of FML.
+
 ### Migration
 
 ```bash
@@ -174,10 +205,11 @@ and omitted from the live `entities` map.
 ## IR schema
 
 Versioned JSON (`schemaVersion: 2`) documented in code: `src/import/ir.ts` (accepts 1|2).
-Adapters: SweetHome3D (primary; long multi-source lights become `kind: strip`), DXF, SVG,
-glTF/OBJ (geometry + manual fixtures), FML (stub).
+Adapters: SweetHome3D, Blender GLB (`scene_glb`), DXF, SVG, glTF/OBJ, FML.
 
 ## Development
+
+See also [docs/future-babylon-live3d.md](docs/future-babylon-live3d.md) for a deferred Babylon.js live3d backend option.
 
 ```bash
 npm install
