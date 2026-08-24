@@ -1,5 +1,6 @@
 import type { HomeAssistant } from "custom-card-helpers";
 import type { SunflowFloorplanCardConfig } from "../src/types";
+import type { Live3dDebugInfo } from "../src/renderer/live3d/scene";
 import { CARD_TYPE, SunflowFloorplanCard } from "../src/card";
 import { overridesToPlacements } from "../src/pose";
 import { entityIdsFromConfig, playgroundConfig } from "./playground-config";
@@ -24,6 +25,7 @@ const stageEl = document.querySelector("#stage") as HTMLElement;
 const exportEl = document.querySelector("#export") as HTMLTextAreaElement | null;
 
 let card: SunflowFloorplanCard | null = null;
+let assetProbeLines: string[] = [];
 
 function asHass(): HomeAssistant {
   return mock as unknown as HomeAssistant;
@@ -38,7 +40,6 @@ function syncCardHass(): void {
   if (!card) {
     return;
   }
-  // Object spread drops class methods (callService). Bind explicitly.
   card.hass = {
     ...asHass(),
     states: { ...mock.states },
@@ -94,34 +95,37 @@ function refreshExport(): void {
   exportEl.value = JSON.stringify(placements, null, 2);
 }
 
-let disposeCompass: (() => void) | null = null;
+function formatPlaygroundStatus(live3d: Live3dDebugInfo | null): string {
+  const lines = [
+    `mode: ${liveConfig.render?.mode}`,
+    `edit_mode: ${liveConfig.edit_mode}`,
+    `entities: ${entityIds.length}`,
+    `browser WebGPU: ${!!navigator.gpu}`,
+    `browser WebGL2: ${!!document.createElement("canvas").getContext("webgl2")}`,
+    `requested gpu: ${liveConfig.render?.gpu ?? "webgpu"}`,
+    `live3d engine: ${liveConfig.render?.engine ?? "three"}`,
+    `lock_camera: ${liveConfig.render?.lock_camera !== false}`,
+  ];
+  if (live3d) {
+    lines.push(`live3d ready: ${live3d.ready}`);
+    lines.push(`active backend: ${live3d.backend ?? (live3d.fallback ? "fallback" : "pending")}`);
+    if (live3d.fallback) {
+      lines.push("live3d fallback: marker preview only");
+    }
+    if (live3d.error) {
+      lines.push(`error: ${live3d.error}`);
+    }
+  } else {
+    lines.push("live3d: loading…");
+  }
+  if (assetProbeLines.length > 0) {
+    lines.push(...assetProbeLines);
+  }
+  return lines.join("\n");
+}
 
-function mountCard(): void {
-  disposeCompass?.();
-  stageEl.replaceChildren();
-  card = new SunflowFloorplanCard();
-  card.addEventListener("config-changed", ((ev: CustomEvent<{ config: SunflowFloorplanCardConfig }>) => {
-    liveConfig = ev.detail.config;
-    refreshExport();
-    setStatus(`placements updated (${Object.keys(overridesToPlacements(liveConfig.overrides)).length} fixtures)`);
-  }) as EventListener);
-  card.setConfig(liveConfig);
-  syncCardHass();
-  stageEl.append(card);
-  disposeCompass = mountCompassOverlay(stageEl, { getCard: () => card });
-  refreshExport();
-  setStatus(
-    [
-      `mode: ${liveConfig.render?.mode}`,
-      `edit_mode: ${liveConfig.edit_mode}`,
-      `entities: ${entityIds.length}`,
-      `WebGPU: ${!!navigator.gpu}`,
-      `WebGL2: ${!!document.createElement("canvas").getContext("webgl2")}`,
-      `live3d gpu: ${liveConfig.render?.gpu ?? "webgpu"}`,
-      `live3d engine: ${liveConfig.render?.engine ?? "three"}`,
-      `lock_camera: ${liveConfig.render?.lock_camera !== false}`,
-    ].join("\n"),
-  );
+function refreshPlaygroundStatus(live3d: Live3dDebugInfo | null = card?.getLive3dDebug() ?? null): void {
+  setStatus(formatPlaygroundStatus(live3d), Boolean(live3d?.error));
   const camBtn = document.querySelector("#btn-free-camera") as HTMLButtonElement | null;
   if (camBtn) {
     const locked = liveConfig.render?.lock_camera !== false;
@@ -134,6 +138,37 @@ function mountCard(): void {
     engineBtn.textContent = engine === "babylon" ? "Engine: Babylon" : "Engine: Three";
     engineBtn.classList.toggle("on", engine === "babylon");
   }
+  const gpuBtn = document.querySelector("#btn-toggle-gpu") as HTMLButtonElement | null;
+  if (gpuBtn) {
+    const gpu = liveConfig.render?.gpu ?? "webgpu";
+    gpuBtn.textContent = gpu === "webgpu" ? "GPU: WebGPU" : "GPU: WebGL";
+    gpuBtn.classList.toggle("on", gpu === "webgpu");
+    if (live3d?.backend) {
+      gpuBtn.title = `Requested ${gpu}, active ${live3d.backend}`;
+    }
+  }
+}
+
+let disposeCompass: (() => void) | null = null;
+
+function mountCard(): void {
+  disposeCompass?.();
+  stageEl.replaceChildren();
+  card = new SunflowFloorplanCard();
+  card.addEventListener("config-changed", ((ev: CustomEvent<{ config: SunflowFloorplanCardConfig }>) => {
+    liveConfig = ev.detail.config;
+    refreshExport();
+    refreshPlaygroundStatus();
+  }) as EventListener);
+  card.addEventListener("live3d-status", ((ev: CustomEvent<Live3dDebugInfo>) => {
+    refreshPlaygroundStatus(ev.detail);
+  }) as EventListener);
+  card.setConfig(liveConfig);
+  syncCardHass();
+  stageEl.append(card);
+  disposeCompass = mountCompassOverlay(stageEl, { getCard: () => card });
+  refreshExport();
+  refreshPlaygroundStatus(null);
 }
 
 function downloadPlacements(): void {
@@ -151,17 +186,18 @@ async function probeAssets(): Promise<void> {
   const urls = [
     "/local/floorplan/manifest.json",
     "/local/floorplan/placements.json?v=2",
+    "/local/floorplan/appartement.glb",
   ];
-  const lines: string[] = [];
+  assetProbeLines = [];
   for (const url of urls) {
     try {
       const res = await fetch(url, { method: "GET" });
-      lines.push(`${res.ok ? "ok" : "FAIL"} ${res.status} ${url}`);
+      assetProbeLines.push(`${res.ok ? "ok" : "FAIL"} ${res.status} ${url}`);
     } catch (e) {
-      lines.push(`FAIL ${url} (${e instanceof Error ? e.message : e})`);
+      assetProbeLines.push(`FAIL ${url} (${e instanceof Error ? e.message : e})`);
     }
   }
-  setStatus(lines.join("\n"), lines.some((l) => l.startsWith("FAIL")));
+  refreshPlaygroundStatus();
 }
 
 mock.subscribe(() => {
@@ -200,12 +236,6 @@ document.querySelector("#btn-free-camera")?.addEventListener("click", () => {
     },
   };
   card.setConfig(liveConfig);
-  const btn = document.querySelector("#btn-free-camera") as HTMLButtonElement | null;
-  if (btn) {
-    const locked = liveConfig.render?.lock_camera !== false;
-    btn.textContent = locked ? "Free camera" : "Lock camera";
-    btn.classList.toggle("on", !locked);
-  }
   refreshExport();
 });
 document.querySelector("#btn-toggle-engine")?.addEventListener("click", () => {
@@ -215,6 +245,17 @@ document.querySelector("#btn-toggle-engine")?.addEventListener("click", () => {
     render: {
       ...liveConfig.render,
       engine: next,
+    },
+  };
+  mountCard();
+});
+document.querySelector("#btn-toggle-gpu")?.addEventListener("click", () => {
+  const next = liveConfig.render?.gpu === "webgl" ? "webgpu" : "webgl";
+  liveConfig = {
+    ...liveConfig,
+    render: {
+      ...liveConfig.render,
+      gpu: next,
     },
   };
   mountCard();

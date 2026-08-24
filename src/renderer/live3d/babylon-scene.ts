@@ -20,6 +20,7 @@ import {
   Node,
 } from "@babylonjs/core";
 import "@babylonjs/loaders/glTF";
+import "@babylonjs/core/Helpers/sceneHelpers";
 import { ImportMeshAsync, SceneLoader } from "@babylonjs/core/Loading/sceneLoader";
 import type { FloorplanIR, CameraIR } from "../../import/ir";
 import type { Vec3 } from "../../types";
@@ -35,6 +36,7 @@ import {
   stripSamplePositions,
 } from "../../strip";
 import { CEILING_NAME_RE } from "./ceilings";
+import { setupBabylonGltfLighting, tuneBabylonGltfMaterials } from "./babylon-gltf-materials";
 import type { Live3dGpuBackend } from "./renderer-backend";
 import type { Live3dHandle, Live3dOptions } from "./handle";
 
@@ -117,6 +119,7 @@ export async function createBabylonLive3dRenderer(
   );
   const scene = new Scene(engine);
   scene.clearColor = new Color4(0.9, 0.9, 0.89, 1);
+  setupBabylonGltfLighting(scene);
 
   const planCx = (ir.bounds.min.x + ir.bounds.max.x) / 2;
   const planCz = (ir.bounds.min.y + ir.bounds.max.y) / 2;
@@ -190,6 +193,8 @@ export async function createBabylonLive3dRenderer(
     }
     sunShadow.addShadowCaster(mesh);
   }
+
+  tuneBabylonGltfMaterials(scene);
 
   const fixtureLightScale = 680;
   const lights = new Map<string, PointLight[]>();
@@ -275,15 +280,16 @@ export async function createBabylonLive3dRenderer(
     sunLight.position = target.add(dir.scale(Math.max(planW, planD) * 1.4));
     sunLight.intensity = shading.sunIntensity * 1.1;
     sunLight.diffuse = new Color3(shading.sunColor[0], shading.sunColor[1], shading.sunColor[2]);
-    ambient.intensity = shading.ambientIntensity * 0.38;
+    ambient.intensity = Math.max(0.45, shading.ambientIntensity * 0.55);
     ambient.diffuse = new Color3(
       shading.ambientColor[0],
       shading.ambientColor[1],
       shading.ambientColor[2],
     );
-    fill.intensity = shading.fillIntensity * 0.48;
+    fill.intensity = Math.max(0.18, shading.fillIntensity * 0.55);
     fill.diffuse = new Color3(shading.fillColor[0], shading.fillColor[1], shading.fillColor[2]);
     scene.clearColor = new Color4(shading.sky[0], shading.sky[1], shading.sky[2], 1);
+    scene.environmentIntensity = Math.max(0.35, 0.45 + shading.sunIntensity * 0.45);
     sunShadow.setDarkness(1 - Math.min(1, shading.sunIntensity));
   };
 
@@ -300,6 +306,14 @@ export async function createBabylonLive3dRenderer(
       group[i]!.position.copyFrom(planToRender(positions[i]!));
     }
   };
+
+  const renderFrame = (): void => {
+    engine.beginFrame();
+    scene.render();
+    engine.endFrame();
+  };
+
+  renderFrame();
 
   return {
     canvas,
@@ -430,7 +444,7 @@ export async function createBabylonLive3dRenderer(
       }
     },
     render() {
-      scene.render();
+      renderFrame();
     },
     dispose() {
       camera.detachControl();

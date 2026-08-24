@@ -49,7 +49,7 @@ import { renderCssFallback } from "./renderer/baked/css-fallback";
 import { LightStateAnimator, entityToLightParams, mergeOverride } from "./renderer/shared/state";
 import { dispatchMarkerAction, isDefaultToggleAction } from "./renderer/shared/markers";
 import { buildRoomHotspots, hitTestRoom, type RoomHotspot } from "./renderer/shared/rooms";
-import type { Live3dHandle } from "./renderer/live3d/scene";
+import type { Live3dHandle, Live3dDebugInfo } from "./renderer/live3d/scene";
 import { resolvePlanNorthDeg, resolveCardFloorSun, sunShadingFromHass } from "./sun";
 
 export const CARD_TYPE = "sunflow-floorplan-card";
@@ -131,6 +131,28 @@ export class SunflowFloorplanCard extends LitElement implements LovelaceCard {
   /** Playground debug: geographic N vs plan +Y on screen. */
   public getCompassBearings(): import("./compass").CompassBearings | null {
     return this._live3d?.getCompassBearings() ?? null;
+  }
+
+  /** Playground debug: active WebGPU/WebGL backend after live3d init. */
+  public getLive3dDebug(): Live3dDebugInfo {
+    return {
+      ready: !!this._live3d,
+      fallback: this._live3dFallback,
+      backend: this._live3d?.rendererBackend ?? null,
+      engine: this._config?.render?.engine ?? "three",
+      requestedGpu: this._config?.render?.gpu ?? "webgpu",
+      error: this._error,
+    };
+  }
+
+  private _emitLive3dStatus(): void {
+    this.dispatchEvent(
+      new CustomEvent("live3d-status", {
+        bubbles: true,
+        composed: true,
+        detail: this.getLive3dDebug(),
+      }),
+    );
   }
 
   public override connectedCallback(): void {
@@ -302,8 +324,10 @@ export class SunflowFloorplanCard extends LitElement implements LovelaceCard {
       this._syncHassState(true);
       this._rebuildMarkers();
       this.requestUpdate();
+      this._emitLive3dStatus();
     } catch (e) {
       this._error = e instanceof Error ? e.message : String(e);
+      this._emitLive3dStatus();
     }
   }
 

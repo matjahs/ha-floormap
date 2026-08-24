@@ -46,3 +46,13 @@ export type Live3dFactory = (
   initialCamera?: CameraIR,
   opts?: Live3dOptions,
 ) => Promise<Live3dHandle>;
+
+/** Playground / debug readout for active live3d GPU backend. */
+export interface Live3dDebugInfo {
+  ready: boolean;
+  fallback: boolean;
+  backend: Live3dGpuBackend | null;
+  engine: Live3dEngine;
+  requestedGpu: Live3dGpuBackend;
+  error: string | null;
+}
