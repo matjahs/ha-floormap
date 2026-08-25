@@ -68,6 +68,89 @@
         border-radius: 12px;
         padding: 12px;
         overflow: auto;
+        position: relative;
+      }
+      .pg-compass {
+        position: absolute;
+        right: 20px;
+        bottom: 20px;
+        z-index: 20;
+        width: 112px;
+        pointer-events: none;
+        user-select: none;
+        filter: drop-shadow(0 4px 12px rgba(0, 0, 0, 0.45));
+      }
+      .pg-compass svg {
+        display: block;
+        width: 100%;
+        height: auto;
+      }
+      .pg-compass-ring {
+        fill: rgba(18, 20, 26, 0.82);
+        stroke: #4a5162;
+        stroke-width: 2;
+      }
+      .pg-compass-face {
+        fill: rgba(28, 31, 40, 0.92);
+        stroke: #353b49;
+        stroke-width: 1;
+      }
+      .pg-compass-tick line,
+      .pg-compass-tick polygon {
+        stroke-width: 2;
+        stroke-linejoin: round;
+      }
+      .pg-compass-tick text {
+        font: 600 11px "IBM Plex Sans", system-ui, sans-serif;
+      }
+      .pg-compass-tick--geo line,
+      .pg-compass-tick--geo polygon,
+      .pg-compass-tick--geo text {
+        fill: #ff5f5f;
+        stroke: #ff5f5f;
+      }
+      .pg-compass-tick--plan line,
+      .pg-compass-tick--plan text {
+        stroke: #5fd4ff;
+        fill: #5fd4ff;
+      }
+      .pg-compass-tick--sun line {
+        stroke: #ffd166;
+      }
+      .pg-compass-tick--sun circle {
+        fill: #ffd166;
+      }
+      .pg-compass-legend {
+        display: flex;
+        justify-content: center;
+        gap: 8px;
+        margin-top: 4px;
+        font-size: 0.65rem;
+        color: var(--muted);
+      }
+      .pg-compass-swatch {
+        display: inline-block;
+        width: 8px;
+        height: 8px;
+        border-radius: 999px;
+        margin-right: 3px;
+        vertical-align: middle;
+      }
+      .pg-compass-swatch--geo {
+        background: #ff5f5f;
+      }
+      .pg-compass-swatch--plan {
+        background: #5fd4ff;
+      }
+      .pg-compass-swatch--sun {
+        background: #ffd166;
+      }
+      .pg-compass-readout {
+        margin-top: 4px;
+        font: 0.62rem/1.35 ui-monospace, monospace;
+        color: #b8c0d0;
+        text-align: center;
+        white-space: pre-wrap;
       }
       .side {
         background: var(--panel);
@@ -150,8 +233,21 @@
         <h2>Lights</h2>
         <div class="row">
           <button type="button" id="btn-random">Random</button>
+          <button type="button" id="btn-free-camera">Free camera</button>
+          <button type="button" id="btn-toggle-engine">Engine: Babylon</button>
+          <button type="button" id="btn-toggle-gpu">GPU: WebGPU</button>
         </div>
         <div class="toggles" id="toggles"></div>
+        <h2 style="margin-top: 16px">Sun</h2>
+        <div class="row" id="sun-presets">
+          <button type="button" id="sun-dawn">Dawn</button>
+          <button type="button" id="sun-noon">Noon</button>
+          <button type="button" id="sun-afternoon">16:12</button>
+          <button type="button" id="sun-sunset">Sunset</button>
+          <button type="button" id="sun-night">Night</button>
+          <button type="button" id="sun-now">Now</button>
+        </div>
+        <div id="sun-status" style="font-size:0.8rem;color:var(--muted);margin-bottom:12px"></div>
         <h2 style="margin-top: 16px">Status</h2>
         <div id="status">Starting…</div>
         <h2 style="margin-top: 16px">placements.json</h2>

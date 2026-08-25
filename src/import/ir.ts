@@ -121,6 +121,22 @@ export interface EnvironmentIR {
    * walls to this height so side textures remain visible from above.
    */
   wallSectionHeight?: number;
+  /**
+   * Compass heading of plan +Y in degrees (0 = geographic north).
+   * The Blender GLB may differ from Floorplanner 3D camera orientation.
+   */
+  planNorthDeg?: number;
+  /** Building floor for sun horizon (e.g. 10 for Waalbandijk). */
+  floorLevel?: number;
+  /**
+   * Locked dollhouse framing from the Blender camera (three.js cm, Y-up).
+   * When set, live3d uses this instead of synthesizing a Bird View.
+   */
+  dollhouseView?: {
+    eye: Vec3;
+    target: Vec3;
+    fovDeg: number;
+  };
 }
 
 export type SourceKind =
@@ -129,7 +145,8 @@ export type SourceKind =
   | "floorplanner-fml"
   | "floorplanner-svg"
   | "gltf"
-  | "obj";
+  | "obj"
+  | "blender-glb";
 
 export interface FloorplanIR {
   schemaVersion: IrSchemaVersion;

@@ -1,0 +1,37 @@
+{
+  "source": "appartement9.blend",
+  "units": "cm",
+  "gltfScale": 100,
+  "planNorthDeg": 180,
+  "floorLevel": 10,
+  "camera": {
+    "name": "DollhouseCam",
+    "eye": [-49.27, 3530.95, 664.05],
+    "target": [700, 0, 900],
+    "fovDeg": 39.598
+  },
+  "bounds": {
+    "min": [-17.1, 1470.8, -9.8],
+    "max": [1513.6, -153.4, 280]
+  },
+  "fixtures": [
+    {
+      "id": "L01",
+      "name": "Living ceiling 4",
+      "kind": "point",
+      "position": [263.5, 547, 209],
+      "color": "#fff2d6",
+      "power": 1
+    },
+    {
+      "id": "L07",
+      "name": "Kitchen LED island",
+      "kind": "strip",
+      "position": [646.8, 1085.5, 88],
+      "end": [472.1, 1094.7, 88],
+      "samples": 8,
+      "color": "#fff2d6",
+      "power": 1
+    }
+  ]
+}

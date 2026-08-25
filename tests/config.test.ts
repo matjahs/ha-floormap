@@ -41,6 +41,36 @@ describe("config validation", () => {
     ).toThrow(/render.mode/);
   });
 
+  it("rejects bad render.gpu", () => {
+    expect(() =>
+      validateConfig({
+        type: "custom:sunflow-floorplan-card",
+        entities: { a: { entity: "light.x" } },
+        render: { gpu: "vulkan" as "webgpu" },
+      }),
+    ).toThrow(/render\.gpu/);
+  });
+
+  it("rejects bad render.engine", () => {
+    expect(() =>
+      validateConfig({
+        type: "custom:sunflow-floorplan-card",
+        entities: { a: { entity: "light.x" } },
+        render: { engine: "unity" as "three" },
+      }),
+    ).toThrow(/render\.engine/);
+  });
+
+  it("rejects bad render.lock_camera", () => {
+    expect(() =>
+      validateConfig({
+        type: "custom:sunflow-floorplan-card",
+        entities: { a: { entity: "light.x" } },
+        render: { lock_camera: "yes" as unknown as boolean },
+      }),
+    ).toThrow(/render\.lock_camera/);
+  });
+
   it("rejects marker override that is not a pair", () => {
     expect(() =>
       validateConfig({
@@ -71,6 +101,15 @@ describe("config validation", () => {
     });
     expect(cfg.overrides?.a?.position).toEqual([1, 2, 3]);
     expect(cfg.edit_mode).toBe(true);
+  });
+
+  it("accepts scene_glb as a data source", () => {
+    const cfg = validateConfig({
+      type: "custom:sunflow-floorplan-card",
+      scene_glb: "/local/floorplan/appartement.glb",
+      entities: { L01: { entity: "light.livingroom_light_1" } },
+    });
+    expect(cfg.scene_glb).toContain("appartement.glb");
   });
 
   it("accepts groups with tap_area polygon", () => {

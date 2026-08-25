@@ -1,9 +1,15 @@
+/// <reference types="vite/client" />
 import type { HomeAssistant } from "custom-card-helpers";
 import type { SunflowFloorplanCardConfig } from "../src/types";
+import type { Live3dDebugInfo } from "../src/renderer/live3d/scene";
 import { CARD_TYPE, SunflowFloorplanCard } from "../src/card";
 import { overridesToPlacements } from "../src/pose";
 import { entityIdsFromConfig, playgroundConfig } from "./playground-config";
 import { MockHass, registerHaStubs } from "./mock-hass";
+import { approximateSun, playgroundSunPresets } from "../src/sun";
+import { mountCompassOverlay } from "./compass-overlay";
+
+const SUN_PRESETS = playgroundSunPresets();
 
 registerHaStubs();
 
@@ -20,6 +26,7 @@ const stageEl = document.querySelector("#stage") as HTMLElement;
 const exportEl = document.querySelector("#export") as HTMLTextAreaElement | null;
 
 let card: SunflowFloorplanCard | null = null;
+let assetProbeLines: string[] = [];
 
 function asHass(): HomeAssistant {
   return mock as unknown as HomeAssistant;
@@ -34,7 +41,6 @@ function syncCardHass(): void {
   if (!card) {
     return;
   }
-  // Object spread drops class methods (callService). Bind explicitly.
   card.hass = {
     ...asHass(),
     states: { ...mock.states },
@@ -59,6 +65,29 @@ function renderToggles(): void {
   }
 }
 
+let sunFollowClock = true;
+const sunStatusEl = document.querySelector("#sun-status") as HTMLElement | null;
+
+function refreshSunStatus(): void {
+  const st = mock.states["sun.sun"];
+  const az = Number(st?.attributes.azimuth ?? 0);
+  const el = Number(st?.attributes.elevation ?? 0);
+  if (sunStatusEl) {
+    sunStatusEl.textContent = `${st?.state ?? "?"} · azimuth ${az.toFixed(0)}° · elevation ${el.toFixed(0)}°${sunFollowClock ? " (clock)" : ""}`;
+  }
+}
+
+function applySun(azimuth: number, elevation: number, followClock: boolean): void {
+  sunFollowClock = followClock;
+  mock.setSun(azimuth, elevation);
+  refreshSunStatus();
+}
+
+function applyClockSun(): void {
+  const pose = approximateSun(new Date());
+  applySun(pose.azimuth, pose.elevation, true);
+}
+
 function refreshExport(): void {
   if (!exportEl) {
     return;
@@ -67,26 +96,81 @@ function refreshExport(): void {
   exportEl.value = JSON.stringify(placements, null, 2);
 }
 
+function formatPlaygroundStatus(live3d: Live3dDebugInfo | null): string {
+  const lines = [
+    `mode: ${liveConfig.render?.mode}`,
+    `edit_mode: ${liveConfig.edit_mode}`,
+    `entities: ${entityIds.length}`,
+    `browser WebGPU: ${!!navigator.gpu}`,
+    `browser WebGL2: ${!!document.createElement("canvas").getContext("webgl2")}`,
+    `requested gpu: ${liveConfig.render?.gpu ?? "webgpu"}`,
+    `live3d engine: ${liveConfig.render?.engine ?? "three"}`,
+    `lock_camera: ${liveConfig.render?.lock_camera !== false}`,
+  ];
+  if (live3d) {
+    lines.push(`live3d ready: ${live3d.ready}`);
+    lines.push(`active backend: ${live3d.backend ?? (live3d.fallback ? "fallback" : "pending")}`);
+    if (live3d.fallback) {
+      lines.push("live3d fallback: marker preview only");
+    }
+    if (live3d.error) {
+      lines.push(`error: ${live3d.error}`);
+    }
+  } else {
+    lines.push("live3d: loading…");
+  }
+  if (assetProbeLines.length > 0) {
+    lines.push(...assetProbeLines);
+  }
+  return lines.join("\n");
+}
+
+function refreshPlaygroundStatus(live3d: Live3dDebugInfo | null = card?.getLive3dDebug() ?? null): void {
+  setStatus(formatPlaygroundStatus(live3d), Boolean(live3d?.error));
+  const camBtn = document.querySelector("#btn-free-camera") as HTMLButtonElement | null;
+  if (camBtn) {
+    const locked = liveConfig.render?.lock_camera !== false;
+    camBtn.textContent = locked ? "Free camera" : "Lock camera";
+    camBtn.classList.toggle("on", !locked);
+  }
+  const engineBtn = document.querySelector("#btn-toggle-engine") as HTMLButtonElement | null;
+  if (engineBtn) {
+    const engine = liveConfig.render?.engine ?? "three";
+    engineBtn.textContent = engine === "babylon" ? "Engine: Babylon" : "Engine: Three";
+    engineBtn.classList.toggle("on", engine === "babylon");
+  }
+  const gpuBtn = document.querySelector("#btn-toggle-gpu") as HTMLButtonElement | null;
+  if (gpuBtn) {
+    const gpu = liveConfig.render?.gpu ?? "webgpu";
+    gpuBtn.textContent = gpu === "webgpu" ? "GPU: WebGPU" : "GPU: WebGL";
+    gpuBtn.classList.toggle("on", gpu === "webgpu");
+    if (live3d?.backend) {
+      gpuBtn.title = `Requested ${gpu}, active ${live3d.backend}`;
+    }
+  }
+}
+
+let disposeCompass: (() => void) | null = null;
+
 function mountCard(): void {
+  disposeCompass?.();
+  card?.remove();
   stageEl.replaceChildren();
   card = new SunflowFloorplanCard();
   card.addEventListener("config-changed", ((ev: CustomEvent<{ config: SunflowFloorplanCardConfig }>) => {
     liveConfig = ev.detail.config;
     refreshExport();
-    setStatus(`placements updated (${Object.keys(overridesToPlacements(liveConfig.overrides)).length} fixtures)`);
+    refreshPlaygroundStatus();
+  }) as EventListener);
+  card.addEventListener("live3d-status", ((ev: CustomEvent<Live3dDebugInfo>) => {
+    refreshPlaygroundStatus(ev.detail);
   }) as EventListener);
   card.setConfig(liveConfig);
   syncCardHass();
   stageEl.append(card);
+  disposeCompass = mountCompassOverlay(stageEl, { getCard: () => card });
   refreshExport();
-  setStatus(
-    [
-      `mode: ${liveConfig.render?.mode}`,
-      `edit_mode: ${liveConfig.edit_mode}`,
-      `entities: ${entityIds.length}`,
-      `WebGL2: ${!!document.createElement("canvas").getContext("webgl2")}`,
-    ].join("\n"),
-  );
+  refreshPlaygroundStatus(null);
 }
 
 function downloadPlacements(): void {
@@ -104,17 +188,18 @@ async function probeAssets(): Promise<void> {
   const urls = [
     "/local/floorplan/manifest.json",
     "/local/floorplan/placements.json?v=2",
+    "/local/floorplan/appartement.glb",
   ];
-  const lines: string[] = [];
+  assetProbeLines = [];
   for (const url of urls) {
     try {
       const res = await fetch(url, { method: "GET" });
-      lines.push(`${res.ok ? "ok" : "FAIL"} ${res.status} ${url}`);
+      assetProbeLines.push(`${res.ok ? "ok" : "FAIL"} ${res.status} ${url}`);
     } catch (e) {
-      lines.push(`FAIL ${url} (${e instanceof Error ? e.message : e})`);
+      assetProbeLines.push(`FAIL ${url} (${e instanceof Error ? e.message : e})`);
     }
   }
-  setStatus(lines.join("\n"), lines.some((l) => l.startsWith("FAIL")));
+  refreshPlaygroundStatus();
 }
 
 mock.subscribe(() => {
@@ -141,9 +226,70 @@ document.querySelector("#btn-reload")?.addEventListener("click", () => {
   mountCard();
   void probeAssets();
 });
+document.querySelector("#btn-free-camera")?.addEventListener("click", () => {
+  if (!card) {
+    return;
+  }
+  liveConfig = {
+    ...liveConfig,
+    render: {
+      ...liveConfig.render,
+      lock_camera: liveConfig.render?.lock_camera === false,
+    },
+  };
+  card.setConfig(liveConfig);
+  refreshExport();
+});
+document.querySelector("#btn-toggle-engine")?.addEventListener("click", () => {
+  const next = liveConfig.render?.engine === "babylon" ? "three" : "babylon";
+  liveConfig = {
+    ...liveConfig,
+    render: {
+      ...liveConfig.render,
+      engine: next,
+    },
+  };
+  mountCard();
+});
+document.querySelector("#btn-toggle-gpu")?.addEventListener("click", () => {
+  const next = liveConfig.render?.gpu === "webgl" ? "webgpu" : "webgl";
+  liveConfig = {
+    ...liveConfig,
+    render: {
+      ...liveConfig.render,
+      gpu: next,
+    },
+  };
+  mountCard();
+});
 document.querySelector("#btn-export")?.addEventListener("click", () => {
   downloadPlacements();
 });
+
+document.querySelector("#sun-dawn")?.addEventListener("click", () => {
+  applySun(SUN_PRESETS.dawn.azimuth, SUN_PRESETS.dawn.elevation, false);
+});
+document.querySelector("#sun-noon")?.addEventListener("click", () => {
+  applySun(SUN_PRESETS.noon.azimuth, SUN_PRESETS.noon.elevation, false);
+});
+document.querySelector("#sun-afternoon")?.addEventListener("click", () => {
+  applySun(SUN_PRESETS.afternoon.azimuth, SUN_PRESETS.afternoon.elevation, false);
+});
+document.querySelector("#sun-sunset")?.addEventListener("click", () => {
+  applySun(SUN_PRESETS.sunset.azimuth, SUN_PRESETS.sunset.elevation, false);
+});
+document.querySelector("#sun-night")?.addEventListener("click", () => {
+  applySun(SUN_PRESETS.night.azimuth, SUN_PRESETS.night.elevation, false);
+});
+document.querySelector("#sun-now")?.addEventListener("click", () => {
+  applyClockSun();
+});
+
+window.setInterval(() => {
+  if (sunFollowClock) {
+    applyClockSun();
+  }
+}, 30000);
 
 window.addEventListener("error", (ev) => {
   setStatus(`window error: ${ev.message}`, true);
@@ -152,6 +298,15 @@ window.addEventListener("unhandledrejection", (ev) => {
   setStatus(`unhandled: ${String(ev.reason)}`, true);
 });
 
+if (import.meta.hot) {
+  import.meta.hot.dispose(() => {
+    disposeCompass?.();
+    card?.remove();
+    card = null;
+  });
+}
+
 mountCard();
 renderToggles();
+applyClockSun();
 void probeAssets();

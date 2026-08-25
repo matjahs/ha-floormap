@@ -19,6 +19,10 @@ export interface BBox {
 export type RenderMode = "baked" | "live3d";
 export type ToneMap = "aces" | "reinhard" | "none";
 export type AmbientMode = "off" | "sun" | string;
+/** live3d GPU backend — webgpu falls back to WebGL2 when WebGPU is unavailable. */
+export type Live3dGpuBackend = "webgpu" | "webgl";
+/** live3d scene engine — default three; babylon for WebGPU-first spike. */
+export type Live3dEngine = "three" | "babylon";
 export type FixtureKind = "point" | "strip";
 
 /** WLED-style segment along a strip fixture (fractions 0..1). */
@@ -84,7 +88,25 @@ export interface RenderConfig {
   exposure?: number;
   gamma?: number;
   transition?: number;
+  /** off | sun | entity_id with azimuth/elevation attributes */
   ambient?: AmbientMode;
+  /**
+   * Compass heading of plan +Y in degrees (0 = north).
+   * Waalbandijk Blender export: 180 (appartement9 +Y north; plan Y flip via -blender.y).
+   */
+  north?: number;
+  /** Building floor (1 = street). Waalbandijk apartment is 10. */
+  floor_level?: number;
+  /** Floor-to-floor height in metres (default 3.05). */
+  floor_height_m?: number;
+  /** Local skyline obstructions for sun visibility (matters most on upper floors). */
+  sun_obstruction?: import("./sun-horizon").SunObstructionConfig;
+  /** live3d renderer: webgpu (default) or force webgl. */
+  gpu?: Live3dGpuBackend;
+  /** live3d scene engine: three (default) or babylon. */
+  engine?: Live3dEngine;
+  /** When true (default), keep the dollhouse camera fixed. Set false to orbit/pan. */
+  lock_camera?: boolean;
 }
 
 export interface SunflowFloorplanCardConfig extends LovelaceCardConfig {
@@ -97,8 +119,19 @@ export interface SunflowFloorplanCardConfig extends LovelaceCardConfig {
    */
   placements?: string;
   /**
+   * Full-scene GLB from the appartement Blender model. When set, live3d loads
+   * this mesh instead of extruding FML / SH3D walls and furniture.
+   */
+  scene_glb?: string;
+  /**
+   * Sidecar JSON for `scene_glb` (camera, bounds, L01–L18 fixtures).
+   * Defaults to the GLB URL with `.glb` replaced by `.scene.json`.
+   */
+  scene?: string;
+  /**
    * Floorplanner FML JSON URL (project `*.json.fml` or design document).
    * When set in live3d, replaces extruded walls/rooms/furniture with FML + GLBs.
+   * Ignored when `scene_glb` is set.
    */
   fml?: string;
   /** Directory of local GLBs named `{refid}.glb` / `opening-{id}.glb`. */

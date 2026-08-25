@@ -1,1 +1,3 @@
-export { createLive3dRenderer, type Live3dHandle } from "./scene";
+export type { Live3dHandle, Live3dOptions } from "./handle";
+export { createLive3dRenderer } from "./create-live3d";
+export type { Live3dGpuBackend } from "./renderer-backend";

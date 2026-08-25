@@ -19,3 +19,4 @@ tests/fixtures/renders/
 *.png
 !docs/**/*.png
 *.glb
+appartment.sh3d
