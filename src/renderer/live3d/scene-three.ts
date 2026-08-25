@@ -33,6 +33,7 @@ import {
   createLive3dGpuRenderer,
 } from "./renderer-backend";
 import type { Live3dHandle, Live3dOptions } from "./handle";
+import { applyHashedPlankFloor } from "./plank-floor-material";
 
 export type { Live3dHandle, Live3dOptions } from "./handle";
 
@@ -283,6 +284,9 @@ export async function createThreeLive3dRenderer(
         metalness: 0.05,
         side: THREE.DoubleSide,
       });
+    if (map) {
+      applyHashedPlankFloor(mat);
+    }
     const elev = ir.levels.find((l) => l.id === room.levelId)?.elevation ?? 0;
     const mesh = new THREE.Mesh(geo, mat);
     // Lift textured surfaces above area fills so kitchen vinyl isn't buried.

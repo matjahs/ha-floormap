@@ -82,6 +82,10 @@ export class SunflowFloorplanCard extends LitElement implements LovelaceCard {
   private _animator = new LightStateAnimator();
   private _live3d: Live3dHandle | null = null;
   private _live3dFrameId = 0;
+  /** Last live3d backing-store size — avoid redundant engine.setSize on WebGPU. */
+  private _live3dViewport: { width: number; height: number } | null = null;
+  /** Stable DOM node — Lit re-parents but never destroys it (WebGPU canvas must stay mounted). */
+  private readonly _canvasHostEl: HTMLDivElement = document.createElement("div");
   private _hotspots: RoomHotspot[] = [];
   private _groupTapHotspots: GroupTapHotspot[] = [];
   private _images = new Map<string, HTMLImageElement>();
@@ -157,6 +161,7 @@ export class SunflowFloorplanCard extends LitElement implements LovelaceCard {
 
   public override connectedCallback(): void {
     super.connectedCallback();
+    this._canvasHostEl.className = "sf-canvas-host";
     this._animator.setOnFrame(() => this._paint());
   }
 
@@ -169,6 +174,7 @@ export class SunflowFloorplanCard extends LitElement implements LovelaceCard {
     this._compositor = null;
     this._live3d?.dispose();
     this._live3d = null;
+    this._live3dViewport = null;
   }
 
   protected override updated(changed: Map<string, unknown>): void {
@@ -184,23 +190,57 @@ export class SunflowFloorplanCard extends LitElement implements LovelaceCard {
     this._ensureCanvasMounted();
   }
 
-  private _ensureCanvasMounted(): void {
-    const host = this.renderRoot?.querySelector(".sf-canvas-host") as HTMLElement | null;
-    if (!host) {
+  private _usesBabylonRenderLoop(): boolean {
+    return (this._config?.render?.engine ?? "three") === "babylon";
+  }
+
+  private _live3dHostPixelSize(host: HTMLElement): { width: number; height: number } {
+    const rect = host.getBoundingClientRect();
+    const width = Math.max(1, Math.floor(rect.width));
+    const height = Math.max(1, Math.floor(rect.height || rect.width * (405 / 720)));
+    return { width, height };
+  }
+
+  private _styleLive3dCanvas(canvas: HTMLCanvasElement): void {
+    canvas.style.width = "100%";
+    canvas.style.height = "100%";
+  }
+
+  /** Set canvas backing store only before the GPU engine is created. */
+  private _primeLive3dCanvas(canvas: HTMLCanvasElement, host: HTMLElement): void {
+    const { width, height } = this._live3dHostPixelSize(host);
+    canvas.width = width;
+    canvas.height = height;
+    this._styleLive3dCanvas(canvas);
+    this._live3dViewport = { width, height };
+  }
+
+  /** Resize via engine.setSize — never mutate canvas.width/height after GPU init. */
+  private _resizeLive3dIfNeeded(host: HTMLElement): void {
+    if (!this._live3d) {
       return;
     }
+    const { width, height } = this._live3dHostPixelSize(host);
+    const prev = this._live3dViewport;
+    if (prev && prev.width === width && prev.height === height) {
+      return;
+    }
+    this._live3d.resize(width, height);
+    this._live3dViewport = { width, height };
+  }
+
+  private _ensureCanvasMounted(): void {
     const canvas = this._live3d?.canvas ?? this._compositor?.canvas ?? null;
-    if (canvas && !host.contains(canvas)) {
+    if (canvas && !this._canvasHostEl.contains(canvas)) {
       canvas.className = "sf-gl";
-      host.replaceChildren(canvas);
-      if (this._live3d) {
-        const rect = host.getBoundingClientRect();
-        this._live3d.resize(
-          Math.max(1, rect.width),
-          Math.max(1, rect.height || rect.width * (405 / 720)),
-        );
-        this._syncEditInteraction();
-      }
+      this._canvasHostEl.replaceChildren(canvas);
+    }
+    const stage = this._canvasHostEl.closest(".sf-stage") as HTMLElement | null;
+    if (stage && this._live3d) {
+      this._resizeLive3dIfNeeded(stage);
+      this._syncEditInteraction();
+    }
+    if (!this._usesBabylonRenderLoop()) {
       this._live3d?.render();
     }
   }
@@ -481,24 +521,20 @@ export class SunflowFloorplanCard extends LitElement implements LovelaceCard {
     });
   }
 
-  private _sizeLive3dCanvas(canvas: HTMLCanvasElement, host: HTMLElement): void {
-    const rect = host.getBoundingClientRect();
-    const width = Math.max(1, Math.floor(rect.width));
-    const height = Math.max(1, Math.floor(rect.height || rect.width * (405 / 720)));
-    canvas.width = width;
-    canvas.height = height;
-    canvas.style.width = "100%";
-    canvas.style.height = "100%";
+  /** WebGPU (Babylon/Three) needs the canvas connected before engine init. */
+  private _live3dStageEl(): HTMLElement | null {
+    return (
+      (this._canvasHostEl.closest(".sf-stage") as HTMLElement | null)
+      ?? (this.renderRoot?.querySelector(".sf-stage") as HTMLElement | null)
+    );
   }
 
-  /** WebGPU (Babylon/Three) needs the canvas connected before engine init. */
   private _mountLive3dCanvas(canvas: HTMLCanvasElement): void {
-    const host = this.renderRoot?.querySelector(".sf-canvas-host") as HTMLElement | null;
-    if (!host) {
-      return;
+    this._canvasHostEl.replaceChildren(canvas);
+    const stage = this._live3dStageEl();
+    if (stage) {
+      this._primeLive3dCanvas(canvas, stage);
     }
-    host.replaceChildren(canvas);
-    this._sizeLive3dCanvas(canvas, host);
   }
 
   private async _initLive3d(): Promise<void> {
@@ -506,14 +542,22 @@ export class SunflowFloorplanCard extends LitElement implements LovelaceCard {
       throw new Error("live3d mode requires IR (manifest or inline ir)");
     }
     await this.updateComplete;
+    if (!this._canvasHostEl.isConnected) {
+      this.requestUpdate();
+      await this.updateComplete;
+    }
     const canvas = document.createElement("canvas");
     canvas.className = "sf-gl";
+    if (!this._canvasHostEl.isConnected) {
+      throw new Error("live3d canvas host not mounted — cannot init WebGPU");
+    }
     this._mountLive3dCanvas(canvas);
     const cam = this._currentCamera();
     const levelId = this._currentLevelId();
     const elev = this._ir.levels.find((l) => l.id === levelId)?.elevation ?? 0;
     this._live3d?.dispose();
     this._stopLive3dLoop();
+    this._live3dViewport = null;
     const { createLive3dRenderer } = await import("./renderer/live3d/scene");
     this._live3d = await createLive3dRenderer(this._ir, canvas, cam, {
       poses: this._posesFromConfig(),
@@ -532,14 +576,15 @@ export class SunflowFloorplanCard extends LitElement implements LovelaceCard {
       lockCamera: this._config?.render?.lock_camera !== false,
     });
     this._ensureCanvasMounted();
-    const host = this.renderRoot?.querySelector(".sf-canvas-host") as HTMLElement | null;
-    if (host && this._live3d) {
-      this._sizeLive3dCanvas(this._live3d.canvas, host);
-      this._live3d.resize(this._live3d.canvas.width, this._live3d.canvas.height);
+    const stage = this._canvasHostEl.closest(".sf-stage") as HTMLElement | null;
+    if (stage && this._live3d) {
+      this._resizeLive3dIfNeeded(stage);
     }
     this._syncEditInteraction();
     this._syncSun();
-    this._startLive3dLoop();
+    if (this._config?.render?.engine !== "babylon") {
+      this._startLive3dLoop();
+    }
   }
 
   private _editFixtureLabels(): {
@@ -1735,7 +1780,7 @@ export class SunflowFloorplanCard extends LitElement implements LovelaceCard {
               params,
               aspect,
             )
-          : html`<div class="sf-canvas-host"></div>`}
+          : this._canvasHostEl}
         ${this._tapAreaOverlay()}
         ${!this._editing && !this._drawingTap
           ? html`

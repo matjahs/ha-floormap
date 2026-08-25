@@ -1,3 +1,4 @@
+/// <reference types="vite/client" />
 import type { HomeAssistant } from "custom-card-helpers";
 import type { SunflowFloorplanCardConfig } from "../src/types";
 import type { Live3dDebugInfo } from "../src/renderer/live3d/scene";
@@ -153,6 +154,7 @@ let disposeCompass: (() => void) | null = null;
 
 function mountCard(): void {
   disposeCompass?.();
+  card?.remove();
   stageEl.replaceChildren();
   card = new SunflowFloorplanCard();
   card.addEventListener("config-changed", ((ev: CustomEvent<{ config: SunflowFloorplanCardConfig }>) => {
@@ -295,6 +297,14 @@ window.addEventListener("error", (ev) => {
 window.addEventListener("unhandledrejection", (ev) => {
   setStatus(`unhandled: ${String(ev.reason)}`, true);
 });
+
+if (import.meta.hot) {
+  import.meta.hot.dispose(() => {
+    disposeCompass?.();
+    card?.remove();
+    card = null;
+  });
+}
 
 mountCard();
 renderToggles();

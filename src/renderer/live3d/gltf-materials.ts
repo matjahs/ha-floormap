@@ -6,8 +6,15 @@ export function isGlassGltfMaterial(
   meshName: string,
   material: Material,
 ): boolean {
-  const label = `${materialName} ${meshName}`.toLowerCase();
-  if (/glass|glasstransparent|windowpane|door_glass/.test(label)) {
+  const mat = materialName.toLowerCase();
+  const mesh = meshName.toLowerCase();
+  if (mesh.includes("glasscherm") && !/flltgrey|kozijnglas|^glass(?:\.|$)|glasssmoked/.test(mat)) {
+    return false;
+  }
+  if (/flltgrey|kozijnglas|glasstransparent|windowpane|door_glass|glasssmoked/.test(mat) || /^glass(?:\.|$)/.test(mat)) {
+    return true;
+  }
+  if (/windowpane|door_glass/.test(mesh)) {
     return true;
   }
   const physical = material as import("three").MeshPhysicalMaterial;

@@ -12,10 +12,8 @@ import {
   Color4,
   HemisphericLight,
   DirectionalLight,
-  PointLight,
   ShadowGenerator,
   StandardMaterial,
-  TransformNode,
   AbstractMesh,
   Node,
 } from "@babylonjs/core";
@@ -36,11 +34,13 @@ import {
   stripSamplePositions,
 } from "../../strip";
 import { CEILING_NAME_RE } from "./ceilings";
-import { setupBabylonGltfLighting, tuneBabylonGltfMaterials } from "./babylon-gltf-materials";
+import { setupBabylonGltfLighting, prepareBabylonGltfMaterials, prepareBabylonGltfLoaderForWebGpu } from "./babylon-gltf-materials";
+import { dollhouseBoundsFromMeshes } from "./babylon-bounds";
+import { applyGltfSceneScale, listLoadedSceneMeshes } from "./babylon-gltf-scene";
+import { computeDollhouseFrame } from "./dollhouse-view";
+import { createFixtureLightSystem, type FixtureLightHandle } from "./babylon-fixture-lights";
 import type { Live3dGpuBackend } from "./renderer-backend";
 import type { Live3dHandle, Live3dOptions } from "./handle";
-
-const GLTF_SCALE = 100;
 
 function splitModelUrl(url: string): { rootUrl: string; filename: string } {
   const slash = url.lastIndexOf("/");
@@ -80,7 +80,6 @@ function prepareShadowOnlyCeiling(mesh: AbstractMesh): void {
   }
   mat.alpha = 0;
   mat.disableColorWrite = true;
-  mat.disableDepthWrite = true;
   mat.backFaceCulling = false;
 }
 
@@ -90,7 +89,7 @@ async function createBabylonEngine(
 ): Promise<{ engine: Engine | WebGPUEngine; backend: Live3dGpuBackend }> {
   if (preferWebGpu && (await WebGPUEngine.IsSupportedAsync)) {
     try {
-      const engine = new WebGPUEngine(canvas, { antialias: true, adaptToDeviceRatio: true });
+      const engine = new WebGPUEngine(canvas, { antialias: true, adaptToDeviceRatio: false });
       await engine.initAsync();
       return { engine, backend: "webgpu" };
     } catch {
@@ -117,6 +116,9 @@ export async function createBabylonLive3dRenderer(
     canvas,
     (opts.gpu ?? "webgpu") !== "webgl",
   );
+  if (rendererBackend === "webgpu") {
+    engine.renderEvenInBackground = true;
+  }
   const scene = new Scene(engine);
   scene.clearColor = new Color4(0.9, 0.9, 0.89, 1);
   setupBabylonGltfLighting(scene);
@@ -149,20 +151,36 @@ export async function createBabylonLive3dRenderer(
   }
 
   const ambient = new HemisphericLight("ambient", new Vector3(0, 1, 0), scene);
-  ambient.intensity = 0.55;
-  ambient.groundColor = new Color3(0.45, 0.44, 0.42);
+  ambient.intensity = 0.72;
+  ambient.groundColor = new Color3(0.52, 0.5, 0.48);
+  ambient.specular = Color3.Black();
 
   const sunLight = new DirectionalLight("sun", new Vector3(-0.5, -0.8, -0.4), scene);
-  sunLight.intensity = 0.85;
+  sunLight.intensity = 1.05;
   sunLight.position = new Vector3(planCx + 600, 1100, planCz + 500);
+
+  const shadowExtent = Math.max(planW, planD) * 0.88;
+  sunLight.shadowMinZ = 0.1;
+  sunLight.shadowMaxZ = shadowExtent * 4;
+  if ("shadowFrustumSize" in sunLight) {
+    (sunLight as DirectionalLight & { shadowFrustumSize: number }).shadowFrustumSize =
+      shadowExtent;
+  }
 
   const sunShadow = new ShadowGenerator(2048, sunLight);
   sunShadow.useBlurExponentialShadowMap = true;
   sunShadow.blurKernel = 24;
   sunShadow.transparencyShadow = true;
+  sunShadow.bias = 0.0008;
+  sunShadow.normalBias = 0.02;
+  sunShadow.darkness = 0.42;
 
   const fill = new DirectionalLight("fill", new Vector3(0.4, -0.5, 0.3), scene);
-  fill.intensity = 0.25;
+  fill.intensity = 0.38;
+
+  if (rendererBackend === "webgpu") {
+    prepareBabylonGltfLoaderForWebGpu();
+  }
 
   const { rootUrl, filename } = splitModelUrl(opts.sceneGltfUrl);
   const loaded = rootUrl
@@ -172,16 +190,7 @@ export async function createBabylonLive3dRenderer(
     throw new Error(`Babylon: no meshes loaded from ${opts.sceneGltfUrl}`);
   }
 
-  const rootNode: TransformNode | null =
-    loaded.transformNodes.find((n) => n.name === "__root__") ??
-    (loaded.meshes[0]?.parent instanceof TransformNode ? loaded.meshes[0].parent : null);
-  if (rootNode) {
-    rootNode.scaling.setAll(GLTF_SCALE);
-  } else {
-    for (const mesh of loaded.meshes) {
-      mesh.scaling.setAll(GLTF_SCALE);
-    }
-  }
+  applyGltfSceneScale(scene, loaded);
 
   for (const mesh of loaded.meshes) {
     if (mesh.name === "skyBox") {
@@ -194,10 +203,14 @@ export async function createBabylonLive3dRenderer(
     sunShadow.addShadowCaster(mesh);
   }
 
-  tuneBabylonGltfMaterials(scene);
+  prepareBabylonGltfMaterials(scene, rendererBackend === "webgpu");
+
+  const sceneMeshes = listLoadedSceneMeshes(loaded.meshes);
+  const meshBounds = dollhouseBoundsFromMeshes(sceneMeshes);
 
   const fixtureLightScale = 680;
-  const lights = new Map<string, PointLight[]>();
+  const fixtureLightSystem = await createFixtureLightSystem(scene, fixtureLightScale);
+  const lights = new Map<string, FixtureLightHandle>();
   const stripEnds = new Map<string, Vec3>();
   const planNorthConfigDeg = opts.planNorthDeg ?? 0;
   let lastSun: SunShading | null = null;
@@ -216,104 +229,95 @@ export async function createBabylonLive3dRenderer(
     if (kind === "strip" && end) {
       stripEnds.set(fx.id, { ...end });
     }
-    const col = Color3.FromHexString(fx.color || "#fff2d6");
-    const group: PointLight[] = [];
-    for (const pose of positions) {
-      const pl = new PointLight(`fx_${fx.id}_${group.length}`, planToRender(pose), scene);
-      pl.diffuse = col;
-      pl.intensity = 0;
-      pl.range = fx.diameter ? fx.diameter * 20 : 400;
-      group.push(pl);
-    }
+    const col = fx.color || "#fff2d6";
+    const group = fixtureLightSystem.createGroup(
+      fx.id,
+      positions,
+      col,
+      fx.diameter ? fx.diameter * 20 : 400,
+      planToRender,
+    );
     lights.set(fx.id, group);
   }
 
+  fixtureLightSystem.finalize();
+
   const frameDollhouse = (): void => {
-    const view = ir.environment.dollhouseView;
-    const minX = ir.bounds.min.x;
-    const maxX = ir.bounds.max.x;
-    const minZ = ir.bounds.min.y;
-    const maxZ = ir.bounds.max.y;
-    const cx = (minX + maxX) / 2;
-    const cz = (minZ + maxZ) / 2;
-    const spanX = Math.max(100, maxX - minX);
-    const spanZ = Math.max(100, maxZ - minZ);
-    const fitSpan = Math.max(spanX, spanZ) * 1.06;
-    const fovDeg = view?.fovDeg ?? 42;
-    const fovRad = (fovDeg * Math.PI) / 180;
-    const aspect = engine.getRenderWidth() / Math.max(1, engine.getRenderHeight());
-    const hFov = 2 * Math.atan(Math.tan(fovRad / 2) * aspect);
-    const fitDist = Math.max(
-      fitSpan / 2 / Math.tan(fovRad / 2),
-      spanX / 2 / Math.tan(hFov / 2),
-      spanZ / 2 / Math.tan(fovRad / 2),
-    );
-    const height = Math.max(fitDist * 0.9, 400);
-    const polar = 0.26;
-    const baseX = view?.eye.x ?? cx;
-    const baseZ = view?.eye.z ?? cz;
-    const toCx = cx - baseX;
-    const toCz = cz - baseZ;
-    const az = Math.hypot(toCx, toCz) > 1 ? Math.atan2(toCz, toCx) : -Math.PI / 2;
-    camera.setTarget(new Vector3(cx, elev + 40, cz));
-    camera.alpha = az + Math.PI;
-    camera.beta = polar;
-    camera.radius = height;
-    camera.fov = fovRad;
+    const aspect =
+      engine.getRenderWidth() / Math.max(1, engine.getRenderHeight()) || canvas.width / Math.max(1, canvas.height);
+    const frame = computeDollhouseFrame(ir, {
+      levelElevation: elev,
+      aspect,
+      bounds: meshBounds ?? undefined,
+    });
+    const look = new Vector3(frame.target.x, frame.target.y, frame.target.z);
+    camera.setTarget(look);
+    camera.setPosition(new Vector3(frame.eye.x, frame.eye.y, frame.eye.z));
+    camera.fov = (frame.fovDeg * Math.PI) / 180;
+    camera.minZ = frame.near;
+    camera.maxZ = frame.far;
+    const fitSpan = meshBounds
+      ? Math.max(meshBounds.maxX - meshBounds.minX, meshBounds.maxY - meshBounds.minY)
+      : Math.max(planW, planD);
+    camera.lowerRadiusLimit = Math.max(120, fitSpan * 0.22);
+    camera.upperRadiusLimit = Math.max(120000, fitSpan * 4);
   };
 
   frameDollhouse();
 
   const applySun = (shading: SunShading): void => {
     lastSun = shading;
+    const sceneAmbScale = 0.38;
     if (!shading.enabled) {
-      ambient.intensity = 0.55;
-      sunLight.intensity = 0.72;
-      fill.intensity = 0.22;
+      ambient.intensity = 0.62;
+      sunLight.intensity = 0.85;
+      fill.intensity = 0.28;
       scene.clearColor = new Color4(0.9, 0.9, 0.89, 1);
       sunLight.direction = new Vector3(-0.5, -0.8, -0.4);
+      scene.environmentIntensity = 0.4;
       return;
     }
     const d = shading.direction;
     const dir = new Vector3(d.x, d.y, d.z).normalize();
     sunLight.direction = dir.scale(-1);
     sunLight.position = target.add(dir.scale(Math.max(planW, planD) * 1.4));
-    sunLight.intensity = shading.sunIntensity * 1.1;
+    sunLight.intensity = shading.sunIntensity * 1.25;
     sunLight.diffuse = new Color3(shading.sunColor[0], shading.sunColor[1], shading.sunColor[2]);
-    ambient.intensity = Math.max(0.45, shading.ambientIntensity * 0.55);
+    ambient.intensity = Math.max(0.28, shading.ambientIntensity * sceneAmbScale);
     ambient.diffuse = new Color3(
       shading.ambientColor[0],
       shading.ambientColor[1],
       shading.ambientColor[2],
     );
-    fill.intensity = Math.max(0.18, shading.fillIntensity * 0.55);
+    fill.intensity = Math.max(0.14, shading.fillIntensity * sceneAmbScale);
     fill.diffuse = new Color3(shading.fillColor[0], shading.fillColor[1], shading.fillColor[2]);
     scene.clearColor = new Color4(shading.sky[0], shading.sky[1], shading.sky[2], 1);
-    scene.environmentIntensity = Math.max(0.35, 0.45 + shading.sunIntensity * 0.45);
-    sunShadow.setDarkness(1 - Math.min(1, shading.sunIntensity));
+    scene.environmentIntensity = Math.max(0.25, 0.3 + shading.sunIntensity * 0.25);
+    sunShadow.darkness = 0.28 + (1 - Math.min(1, shading.sunIntensity)) * 0.35;
   };
 
   const cameraBasis = new Float64Array(6);
 
   const setStripPose = (fixtureId: string, start: Vec3, end: Vec3): void => {
     const group = lights.get(fixtureId);
-    if (!group || group.length === 0) {
+    if (!group) {
       return;
     }
     stripEnds.set(fixtureId, { ...end });
-    const positions = stripSamplePositions(start, end, group.length);
-    for (let i = 0; i < group.length; i++) {
-      group[i]!.position.copyFrom(planToRender(positions[i]!));
+    const positions = stripSamplePositions(start, end, group.sampleCount);
+    for (let i = 0; i < positions.length; i++) {
+      group.setPosition(i, positions[i]!, planToRender);
     }
   };
 
   const renderFrame = (): void => {
-    engine.beginFrame();
     scene.render();
-    engine.endFrame();
   };
 
-  renderFrame();
+  // Wait one frame so Lit finishes adopting the stable canvas host before first submit.
+  requestAnimationFrame(() => {
+    engine.runRenderLoop(renderFrame);
+  });
 
   return {
     canvas,
@@ -323,33 +327,30 @@ export async function createBabylonLive3dRenderer(
       if (!group) {
         return;
       }
-      for (const pl of group) {
-        pl.intensity = params.on ? params.intensity * fixtureLightScale : 0;
-        pl.diffuse = new Color3(params.color[0], params.color[1], params.color[2]);
-      }
+      group.setIntensity(params.on, params.intensity, params.color);
     },
     setLightSamples(fixtureId, paramsList) {
       const group = lights.get(fixtureId);
       if (!group) {
         return;
       }
-      for (let i = 0; i < group.length; i++) {
+      for (let i = 0; i < group.sampleCount; i++) {
         const params = paramsList[i] ?? paramsList[paramsList.length - 1];
         if (!params) {
           continue;
         }
-        group[i]!.intensity = params.on ? params.intensity * fixtureLightScale : 0;
-        group[i]!.diffuse = new Color3(params.color[0], params.color[1], params.color[2]);
+        group.setSampleIntensity(i, params.on, params.intensity, params.color);
       }
     },
     setLightPosition(fixtureId, pos) {
       const group = lights.get(fixtureId);
-      if (!group?.[0]) {
+      const first = group?.getRenderPosition(0);
+      if (!group || !first) {
         return;
       }
       const end = stripEnds.get(fixtureId);
-      if (end && group.length > 1) {
-        const old = renderToPlan(group[0].position.x, group[0].position.y, group[0].position.z);
+      if (end && group.sampleCount > 1) {
+        const old = renderToPlan(first.x, first.y, first.z);
         setStripPose(fixtureId, pos, {
           x: end.x + (pos.x - old.x),
           y: end.y + (pos.y - old.y),
@@ -357,7 +358,7 @@ export async function createBabylonLive3dRenderer(
         });
         return;
       }
-      group[0].position.copyFrom(planToRender(pos));
+      group.setPosition(0, pos, planToRender);
     },
     setStripPose,
     setCamera(_cam) {
@@ -394,8 +395,8 @@ export async function createBabylonLive3dRenderer(
         return null;
       }
       const p = ray.origin.add(ray.direction.scale(t));
-      const existing = fixtureId ? lights.get(fixtureId)?.[0] : undefined;
-      const heightY = existing ? existing.position.y : elev + 180;
+      const existing = fixtureId ? lights.get(fixtureId)?.getRenderPosition(0) : undefined;
+      const heightY = existing ? existing.y : elev + 180;
       return renderToPlan(p.x, heightY, p.z);
     },
     pickFixture(_clientX, _clientY, _allowedIds) {
@@ -438,16 +439,23 @@ export async function createBabylonLive3dRenderer(
       };
     },
     resize(width, height) {
-      engine.setSize(width, height);
+      const w = Math.max(1, Math.floor(width));
+      const h = Math.max(1, Math.floor(height));
+      if (engine.getRenderWidth() === w && engine.getRenderHeight() === h) {
+        return;
+      }
+      engine.setSize(w, h, true);
       if (!orbitEnabled) {
         frameDollhouse();
       }
     },
     render() {
-      renderFrame();
+      // runRenderLoop drives WebGPU presentation; keep for API compat with card paint hooks.
     },
     dispose() {
+      engine.stopRenderLoop();
       camera.detachControl();
+      fixtureLightSystem.dispose();
       scene.dispose();
       engine.dispose();
       lights.clear();

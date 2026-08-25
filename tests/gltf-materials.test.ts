@@ -29,6 +29,24 @@ describe("gltf glass materials", () => {
     expect(isTransparentGlassMaterial(out)).toBe(true);
   });
 
+  it("does not treat Glasscherm window frames as glass", () => {
+    const mat = new THREE.MeshStandardMaterial({ color: 0x111111 });
+    mat.name = "KozijnAntraciet";
+    expect(isGlassGltfMaterial(mat.name, "P055 Glasscherm balkon 1510x2409 - 1 delig", mat)).toBe(false);
+  });
+
+  it("detects kozijn pane material KozijnGlas as glass", () => {
+    const mat = new THREE.MeshStandardMaterial({ color: 0xffffff });
+    mat.name = "KozijnGlas";
+    expect(isGlassGltfMaterial(mat.name, "P000 Kozijn 1536x2429 westgevel - 2 delig draai-vast", mat)).toBe(true);
+  });
+
+  it("still detects legacy flltgrey pane material as glass", () => {
+    const mat = new THREE.MeshStandardMaterial({ color: 0xffffff });
+    mat.name = "flltgrey";
+    expect(isGlassGltfMaterial(mat.name, "P000 Kozijn 1536x2429 westgevel - 2 delig draai-vast", mat)).toBe(true);
+  });
+
   it("keeps opaque wall materials solid", () => {
     const mat = new THREE.MeshStandardMaterial({ color: 0xffffff });
     mat.name = "WallPaint";
