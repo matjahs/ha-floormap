@@ -9,7 +9,7 @@
 > findings were fixed mid-review and are marked **✅ Fixed in working tree** with what
 > still remains. Line numbers are from the tree as of 11:15; re-check before acting.
 
-**Test status:** 156/156 passing after #2/#3/#6/#7/#9/#14/#15 fixes.
+**Test status:** 157/157 passing after #8/#10–#13/#16 fallout fixes.
 
 ## Summary
 
