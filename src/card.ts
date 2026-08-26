@@ -14,7 +14,10 @@ import { validateConfig, stubConfig } from "./config";
 import type { FloorplanIR } from "./import/ir";
 import { assertIR } from "./import/ir";
 import { importFml } from "./import/fml";
-import { importBlenderScene } from "./import/blender";
+import {
+  importBlenderScene,
+  mergeEntitiesFromBlenderFixtures,
+} from "./import/blender";
 import { selectCamera, projectToPercent } from "./projection";
 import {
   mergePlacementsIntoOverrides,
@@ -351,6 +354,15 @@ export class SunflowFloorplanCard extends LitElement implements LovelaceCard {
 
       this._ir = ir;
       this._renders = renders;
+      if (ir?.fixtures?.length) {
+        this._config = {
+          ...this._config,
+          entities: mergeEntitiesFromBlenderFixtures(
+            this._config.entities,
+            ir.fixtures,
+          ),
+        };
+      }
 
       const mode = this._config.render?.mode ?? "live3d";
       this._live3dFallback = false;

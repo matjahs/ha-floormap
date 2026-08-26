@@ -13,7 +13,7 @@ import {
   type LightFixtureIR,
   type RoomIR,
 } from "./ir";
-import type { Vec2, Vec3 } from "../types";
+import type { FixtureEntityConfig, Vec2, Vec3 } from "../types";
 
 export interface BlenderSceneCamera {
   name: string;
@@ -31,6 +31,8 @@ export interface BlenderSceneFixture {
   samples?: number;
   color: string;
   power: number;
+  /** HA `light.*` entity from Blender Object custom property `device_id`. */
+  entity?: string;
 }
 
 export interface BlenderSceneRoom {
@@ -109,6 +111,10 @@ export function importBlenderScene(
     if (fx.kind === "strip" && fx.end) {
       item.end = tripleToVec3(fx.end);
       item.samples = fx.samples ?? 8;
+    }
+    const entity = typeof fx.entity === "string" ? fx.entity.trim() : "";
+    if (entity.startsWith("light.")) {
+      item.entityId = entity;
     }
     return item;
   });
@@ -196,4 +202,29 @@ export function importBlenderScene(
     max: tripleToVec3(raw.bounds.max),
   };
   return ir;
+}
+
+/**
+ * Apply HA entity ids from Blender `device_id` (exported as fixture.entity).
+ * Card YAML still owns groups / actions; Blender wins for the entity string
+ * when a fixture has a valid `entityId`.
+ */
+export function mergeEntitiesFromBlenderFixtures(
+  entities: Record<string, FixtureEntityConfig> | undefined,
+  fixtures: LightFixtureIR[],
+): Record<string, FixtureEntityConfig> {
+  const out: Record<string, FixtureEntityConfig> = { ...(entities ?? {}) };
+  for (const fx of fixtures) {
+    const entityId = fx.entityId?.trim();
+    if (!entityId || !entityId.startsWith("light.")) {
+      continue;
+    }
+    const prev = out[fx.id];
+    if (prev) {
+      out[fx.id] = { ...prev, entity: entityId };
+    } else {
+      out[fx.id] = { entity: entityId };
+    }
+  }
+  return out;
 }

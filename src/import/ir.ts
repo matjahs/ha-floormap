@@ -86,6 +86,8 @@ export interface LightFixtureIR {
   end?: Vec3;
   /** live3d sample count along strip (default 8). */
   samples?: number;
+  /** Home Assistant entity id from Blender custom property `device_id`. */
+  entityId?: string;
 }
 
 export type CameraLens = "PINHOLE" | "NORMAL" | "FISHEYE" | "SPHERICAL";
