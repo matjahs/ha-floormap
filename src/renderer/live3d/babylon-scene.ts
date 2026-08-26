@@ -232,12 +232,15 @@ export async function createBabylonLive3dRenderer(
   prepareBabylonGltfMaterials(scene, rendererBackend === "webgpu");
 
   // Roland pattern: hide visible ceiling, keep an invisible clone as caster.
+  // includeDescendants=true: glTF multi-material ceilings clone into `_primitive*`
+  // children that already have the shadow-only material from prepareShadowOnlyCeiling.
+  // (Unlike scene casters, where false avoids walking into glass.)
   for (const mesh of [...loaded.meshes]) {
     if (!isBabylonCeiling(mesh) || isCeilingShadowCaster(mesh) || !mesh.isEnabled()) {
       continue;
     }
     const caster = prepareShadowOnlyCeiling(mesh);
-    sunShadow.addShadowCaster(caster, false);
+    sunShadow.addShadowCaster(caster, true);
   }
   const sceneMeshes = listLoadedSceneMeshes(loaded.meshes);
   const meshBounds = dollhouseBoundsFromMeshes(sceneMeshes);

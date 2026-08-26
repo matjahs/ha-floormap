@@ -72,4 +72,21 @@ describe("Babylon shadow-only ceilings", () => {
 
     engine.dispose();
   });
+
+  it("lists root + descendant meshes for shadow registration", () => {
+    const engine = new NullEngine();
+    const scene = new Scene(engine);
+    scene.activeCamera = new FreeCamera("c", new Vector3(0, 0, 0), scene);
+    const parent = MeshBuilder.CreateBox("sfCeiling_multi", { size: 1 }, scene);
+    const child = MeshBuilder.CreateBox("sfCeiling_multi_primitive0", { size: 0.5 }, scene);
+    child.parent = parent;
+
+    const caster = prepareShadowOnlyCeiling(parent);
+    // Mirrors babylon-scene: addShadowCaster(caster, true) registers the hierarchy.
+    const registered = [caster, ...caster.getChildMeshes()];
+    expect(registered.length).toBeGreaterThanOrEqual(2);
+    expect(registered.every((m) => m.layerMask === LIVE3D_CEILING_LAYER)).toBe(true);
+
+    engine.dispose();
+  });
 });
