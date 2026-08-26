@@ -20,7 +20,7 @@ export {
   resolveFloorSunContext,
   waalbandijkFloorSunContext,
 } from "./sun-horizon";
-export type { FloorSunContext, FloorSunSources, SunObstructionConfig } from "./sun-horizon";
+export type { FloorSunContext, FloorSunSources } from "./sun-horizon";
 
 export interface SunEntityLike {
   state: string;
@@ -34,7 +34,7 @@ export interface SunPose {
 
 export interface SunShading {
   enabled: boolean;
-  /** Unit vector FROM the sun in three.js Y-up (plan +X east, +Z north). */
+  /** Unit vector toward the sun in three.js Y-up (plan +X east, +Z plan +Y). */
   direction: { x: number; y: number; z: number };
   sunColor: RGB;
   sunIntensity: number;
@@ -86,20 +86,55 @@ function numAttr(attrs: Record<string, unknown>, key: string): number | null {
   return null;
 }
 
-/** Playground demo poses (~52°N summer). Compass azimuth + elevation in degrees. */
+/** Playground demo poses — real Waalbandijk solar on the reference summer day. */
 export function playgroundSunPresets(
   location: SolarLocation = WAALBANDIJK_SUN_LOCATION,
-  referenceDay = new Date("2026-08-24T16:12:00+02:00"),
+  referenceDay = "2026-08-24",
+  tz = "+02:00",
 ) {
-  const afternoon = solarPosition(referenceDay, location.latitude, location.longitude);
+  const at = (hour: number, minute: number): SunPose =>
+    solarPosition(
+      new Date(
+        `${referenceDay}T${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}:00${tz}`,
+      ),
+      location.latitude,
+      location.longitude,
+    );
   return {
-    dawn: { azimuth: 78, elevation: 3 },
-    noon: { azimuth: 180, elevation: 48 },
-    /** Matches Floorplanner 24 Aug 2026 16:12 at Waalbandijk (~SW, not due west). */
-    afternoon,
-    sunset: { azimuth: 290, elevation: 6 },
-    night: { azimuth: 350, elevation: -18 },
+    /** First usable direct sun on floor 10 (~07:00). */
+    dawn: at(7, 0),
+    /** Near solar transit — south-facing facades. */
+    noon: at(13, 0),
+    /** Floorplanner reference: 24 Aug 2026 16:12 (~SW). */
+    afternoon: at(16, 12),
+    /** Low west sun into living (~20:00). */
+    sunset: at(20, 0),
+    night: at(23, 0),
   } as const;
+}
+
+/** Which plan axis the horizontal sun vector favors (east/west = ±X; south = geographic south). */
+export function sunHorizontalFacade(
+  azimuthDeg: number,
+  elevationDeg: number,
+  northDeg = 0,
+  mirrorX = false,
+): "east" | "west" | "south" | "other" {
+  const d = sunDirection(azimuthDeg, Math.max(elevationDeg, 0), northDeg, mirrorX);
+  if (d.x > 0.35) {
+    return "east";
+  }
+  if (d.x < -0.35) {
+    return "west";
+  }
+  // Align with geographic south in the same (north, mirrorX) frame — not raw plan +Z
+  // (at north=0 south is −Z; at north=180+mirror_x it is +Z).
+  const south = sunDirection(180, 0, northDeg, mirrorX);
+  const hLen = Math.hypot(d.x, d.z) || 1;
+  if ((d.x * south.x + d.z * south.z) / hLen > 0.25) {
+    return "south";
+  }
+  return "other";
 }
 
 /** Clock / playground stand-in when `sun.sun` is missing. Uses Waalbandijk by default. */
@@ -129,10 +164,6 @@ export function parseSunEntity(state: SunEntityLike | undefined): SunPose | null
   };
 }
 
-/**
- * Compass azimuth (0=N, 90=E) + elevation → three.js direction FROM the sun.
- * `north` is the compass heading of plan +Y (degrees clockwise from north).
- */
 /** Prefer explicit card config; fall back to scene sidecar export. */
 export function resolvePlanNorthDeg(
   renderNorth: number | undefined,
@@ -147,21 +178,35 @@ export function resolvePlanNorthDeg(
   return 0;
 }
 
+/**
+ * Compass azimuth (0=N, 90=E) + elevation → unit vector toward the sun in render space.
+ *
+ * `northDeg` is the compass heading of plan +Y (degrees clockwise from geographic north),
+ * applied as an orthonormal rotation of the horizontal (east, north) frame into
+ * render (x, z). Optional `mirrorX` flips render +X afterward — needed when the plan
+ * mesh is Y-mirrored (e.g. Blender `-blender.y` export) so geographic east stays +X
+ * while plan +Y points south (`north: 180` + `mirror_x: true`).
+ */
 export function sunDirection(
   azimuthDeg: number,
   elevationDeg: number,
   northDeg = 0,
+  mirrorX = false,
 ): { x: number; y: number; z: number } {
   const el = (elevationDeg * Math.PI) / 180;
   const cosEl = Math.cos(el);
-  // Geographic (east, north) → plan (x=east, z=plan +Y at compass heading northDeg).
   const geoAz = (azimuthDeg * Math.PI) / 180;
   const geoEast = Math.sin(geoAz) * cosEl;
   const geoNorth = Math.cos(geoAz) * cosEl;
   const nRad = (northDeg * Math.PI) / 180;
-  // Render +X stays geographic east; plan +Z heading `northDeg` via geographicNorthRenderDir.
-  const x = geoEast - geoNorth * Math.sin(nRad);
-  const z = geoNorth * Math.cos(nRad);
+  const cosN = Math.cos(nRad);
+  const sinN = Math.sin(nRad);
+  // Rotate geographic (east, north) → plan (x, z) with plan +Y at compass heading northDeg.
+  let x = geoEast * cosN - geoNorth * sinN;
+  const z = geoEast * sinN + geoNorth * cosN;
+  if (mirrorX) {
+    x = -x;
+  }
   const y = Math.sin(el);
   const hLen = Math.hypot(x, z);
   if (hLen < 1e-9 && Math.abs(y) < 1e-9) {
@@ -172,14 +217,14 @@ export function sunDirection(
 }
 
 export function resolveCardFloorSun(sources: {
-  render?: FloorSunSources & { floor_level?: number; floor_height_m?: number; sun_obstruction?: FloorSunSources["obstruction"] };
-  environment?: { floorLevel?: number };
+  render?: FloorSunSources & { floor_level?: number; floor_height_m?: number; elevation_m?: number };
+  environment?: { floorLevel?: number; floorElevationM?: number };
 }): FloorSunContext | undefined {
   const render = sources.render;
   return resolveFloorSunContext({
     floorLevel: render?.floor_level ?? sources.environment?.floorLevel,
     floorHeightM: render?.floor_height_m,
-    obstruction: render?.sun_obstruction,
+    elevationM: render?.elevation_m ?? sources.environment?.floorElevationM,
   });
 }
 
@@ -187,6 +232,8 @@ export function shadeSun(opts: {
   azimuth: number;
   elevation: number;
   north?: number;
+  /** Flip render +X after north rotation (Blender Y-mirrored plans). */
+  mirrorX?: boolean;
   floor?: FloorSunContext;
   enabled?: boolean;
 }): SunShading {
@@ -195,20 +242,29 @@ export function shadeSun(opts: {
   const el = opts.floor
     ? effectiveSunElevation(geometricEl, opts.floor, opts.azimuth)
     : geometricEl;
-  const dir = sunDirection(opts.azimuth, Math.max(el, 0), opts.north ?? 0);
+  const dir = sunDirection(opts.azimuth, Math.max(el, 0), opts.north ?? 0, opts.mirrorX === true);
   const day = smoothstep(-4, 18, el);
-  const golden = smoothstep(0, 8, el) * (1 - smoothstep(12, 28, el));
-  const kelvin = lerp(2000, 5600, smoothstep(0, 42, Math.max(el, 0)));
+  const golden = smoothstep(2, 14, el) * (1 - smoothstep(22, 38, el));
+  const kelvin = lerp(2200, 5800, smoothstep(0, 42, Math.max(el, 0)));
   const sunColor = linearToSrgb(kelvinToRgb(kelvin));
+  const sunUp = el > 0;
+  // Direct sun dies at the horizon. When up, it must dominate over ambient — hemisphere/IBL
+  // are not occluded by ceilings, so high ambient reads as "every room lit from above".
   const sunIntensity =
-    el <= -6 ? 0 : el < 0 ? 0.18 * ((el + 6) / 6) : 0.28 + 0.72 * smoothstep(0, 38, el);
+    el <= 0
+      ? 0
+      : (0.16 + 0.74 * smoothstep(0.5, 30, el)) * (1 + golden * 0.22);
   const ambientColor = lerpRgb(rgb01("#6a7388"), rgb01("#cfc8bc"), day);
   const floorSkyBoost = opts.floor
-    ? smoothstep(2, 10, opts.floor.floorLevel) * 0.12
+    ? smoothstep(2, 10, opts.floor.floorLevel) * 0.06 * smoothstep(-6, 0, el)
     : 0;
-  const ambientIntensity = lerp(0.14, 0.58, day) + floorSkyBoost;
+  const ambientIntensity = sunUp
+    ? lerp(0.04, 0.11, day)
+    : lerp(0.14, 0.38, smoothstep(-14, 2, el)) + floorSkyBoost;
   const fillColor = lerpRgb(rgb01("#8a96b0"), rgb01("#e8eef5"), day);
-  const fillIntensity = lerp(0.06, 0.32, day) + golden * 0.08 + floorSkyBoost * 0.35;
+  const fillIntensity = sunUp
+    ? lerp(0.02, 0.06, day)
+    : lerp(0.05, 0.26, day) + golden * 0.08 + floorSkyBoost * 0.35;
   const sky = lerpRgb(
     lerpRgb(rgb01("#12141c"), rgb01("#3d3558"), smoothstep(-8, 0, el)),
     lerpRgb(rgb01("#e0b07a"), rgb01("#c5d0de"), smoothstep(4, 22, el)),
@@ -236,13 +292,14 @@ export function sunShadingFromHass(
   north = 0,
   now = new Date(),
   floor?: FloorSunContext,
+  mirrorX = false,
 ): SunShading {
   const mode = ambient ?? "sun";
   if (mode === "off") {
-    return shadeSun({ azimuth: 180, elevation: 45, north, floor, enabled: false });
+    return shadeSun({ azimuth: 180, elevation: 45, north, mirrorX, floor, enabled: false });
   }
   const entityId = mode === "sun" ? "sun.sun" : mode;
   const parsed = parseSunEntity(hass?.states?.[entityId]);
   const pose = parsed ?? approximateSun(now);
-  return shadeSun({ ...pose, north, floor, enabled: true });
+  return shadeSun({ ...pose, north, mirrorX, floor, enabled: true });
 }

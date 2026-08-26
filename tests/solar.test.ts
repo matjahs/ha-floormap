@@ -8,7 +8,7 @@ describe("solarPosition", () => {
       WAALBANDIJK_SUN_LOCATION.latitude,
       WAALBANDIJK_SUN_LOCATION.longitude,
     );
-    expect(pos.azimuth).toBeCloseTo(229.84, 1);
-    expect(pos.elevation).toBeCloseTo(38.88, 1);
+    expect(pos.azimuth).toBeCloseTo(231.22, 1);
+    expect(pos.elevation).toBeCloseTo(38.75, 1);
   });
 });

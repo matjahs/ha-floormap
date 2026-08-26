@@ -2,6 +2,7 @@ import type { FloorplanIR, CameraIR } from "../../import/ir";
 import type { LightParams, Live3dEngine, Vec3 } from "../../types";
 import type { SunShading } from "../../sun";
 import type { CompassBearings } from "../../compass";
+import type { SunProbeReading } from "../../sun-probes";
 import type { Live3dGpuBackend } from "./renderer-backend";
 
 export interface Live3dHandle {
@@ -19,7 +20,14 @@ export interface Live3dHandle {
   raycastFloor(clientX: number, clientY: number, fixtureId?: string): Vec3 | null;
   pickFixture(clientX: number, clientY: number, allowedIds?: Set<string>): string | null;
   setSun(shading: SunShading): void;
+  /**
+   * Multiplier on hemisphere / fill / IBL ambient (not the directional sun).
+   * 1 = default from shadeSun; 0 = no ambient fill; >1 brightens interiors.
+   */
+  setAmbientFillScale(scale: number): void;
   getCompassBearings(): CompassBearings;
+  /** Exterior-wall face sensors: receives direct sun yes/no (Babylon scene_glb). */
+  getSunProbes(): SunProbeReading[];
   resize(width: number, height: number): void;
   render(): void;
   dispose(): void;
@@ -38,6 +46,8 @@ export interface Live3dOptions {
   lockCamera?: boolean;
   /** live3d backend — default three; babylon for WebGPU spike. */
   engine?: Live3dEngine;
+  /** Babylon only: open the debug inspector overlay. */
+  inspector?: boolean;
 }
 
 export type Live3dFactory = (

@@ -163,6 +163,39 @@
         margin: 0 0 10px;
         font-size: 0.95rem;
       }
+      .pg-fold {
+        margin: 0 0 12px;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: #181b24;
+      }
+      .pg-fold > summary {
+        cursor: pointer;
+        list-style: none;
+        padding: 8px 10px;
+        font-size: 0.95rem;
+        font-weight: 600;
+        user-select: none;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .pg-fold > summary::-webkit-details-marker {
+        display: none;
+      }
+      .pg-fold > summary::before {
+        content: "▸";
+        color: var(--muted);
+        font-size: 0.75rem;
+        width: 0.75rem;
+      }
+      .pg-fold[open] > summary::before {
+        content: "▾";
+      }
+      .pg-fold-body {
+        padding: 0 10px 10px;
+        border-top: 1px solid var(--border);
+      }
       .side button,
       header button {
         appearance: none;
@@ -230,15 +263,21 @@
     <div class="layout">
       <div class="stage" id="stage"></div>
       <aside class="side">
-        <h2>Lights</h2>
         <div class="row">
-          <button type="button" id="btn-random">Random</button>
           <button type="button" id="btn-free-camera">Free camera</button>
           <button type="button" id="btn-toggle-engine">Engine: Babylon</button>
           <button type="button" id="btn-toggle-gpu">GPU: WebGPU</button>
         </div>
-        <div class="toggles" id="toggles"></div>
-        <h2 style="margin-top: 16px">Sun</h2>
+        <details class="pg-fold">
+          <summary>Lights</summary>
+          <div class="pg-fold-body">
+            <div class="row">
+              <button type="button" id="btn-random">Random</button>
+            </div>
+            <div class="toggles" id="toggles"></div>
+          </div>
+        </details>
+        <h2>Sun</h2>
         <div class="row" id="sun-presets">
           <button type="button" id="sun-dawn">Dawn</button>
           <button type="button" id="sun-noon">Noon</button>
@@ -246,8 +285,22 @@
           <button type="button" id="sun-sunset">Sunset</button>
           <button type="button" id="sun-night">Night</button>
           <button type="button" id="sun-now">Now</button>
+          <button type="button" id="sun-timelapse" title="Animate Waalbandijk sun through 24 Aug 2026 (lights off)">24h lap</button>
         </div>
+        <label id="sun-scrub-wrap" style="display:flex;flex-direction:column;gap:4px;margin:8px 0 4px;font-size:0.75rem;color:var(--muted)">
+          <span id="sun-clock">Scrub time</span>
+          <input type="range" id="sun-scrub" min="0" max="95" value="0" step="1" style="width:100%" />
+        </label>
+        <label style="display:flex;flex-direction:column;gap:4px;margin:8px 0 4px;font-size:0.75rem;color:var(--muted)">
+          <span>Ambient / fill <span id="ambient-fill-value">1.00×</span></span>
+          <input type="range" id="ambient-fill" min="0" max="3" value="1" step="0.05" style="width:100%" />
+        </label>
         <div id="sun-status" style="font-size:0.8rem;color:var(--muted);margin-bottom:12px"></div>
+        <h2 style="margin-top: 16px">Sun probes</h2>
+        <p style="margin:0 0 8px;font-size:0.72rem;color:var(--muted)">
+          Groen = ontvangt direct zonlicht, rood = niet (facing of schaduw). Markers op binnen-/buitenblad.
+        </p>
+        <div id="sun-probes" style="font:0.68rem/1.35 ui-monospace,monospace;color:#b8c0d0;max-height:220px;overflow:auto;white-space:pre"></div>
         <h2 style="margin-top: 16px">Status</h2>
         <div id="status">Starting…</div>
         <h2 style="margin-top: 16px">placements.json</h2>

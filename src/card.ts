@@ -137,6 +137,17 @@ export class SunflowFloorplanCard extends LitElement implements LovelaceCard {
     return this._live3d?.getCompassBearings() ?? null;
   }
 
+  /** Playground debug: exterior wall face sun sensors. */
+  public getSunProbes(): import("./sun-probes").SunProbeReading[] {
+    return this._live3d?.getSunProbes() ?? [];
+  }
+
+  /** Playground: scale hemisphere / fill / IBL ambient (1 = default). */
+  public setAmbientFillScale(scale: number): void {
+    this._live3d?.setAmbientFillScale(scale);
+    this._live3d?.render();
+  }
+
   /** Playground debug: active WebGPU/WebGL backend after live3d init. */
   public getLive3dDebug(): Live3dDebugInfo {
     return {
@@ -574,6 +585,7 @@ export class SunflowFloorplanCard extends LitElement implements LovelaceCard {
       gpu: this._config?.render?.gpu ?? "webgpu",
       engine: this._config?.render?.engine ?? "three",
       lockCamera: this._config?.render?.lock_camera !== false,
+      inspector: this._config?.render?.inspector === true,
     });
     this._ensureCanvasMounted();
     const stage = this._canvasHostEl.closest(".sf-stage") as HTMLElement | null;
@@ -757,7 +769,16 @@ export class SunflowFloorplanCard extends LitElement implements LovelaceCard {
       render: this._config?.render,
       environment: this._ir?.environment,
     });
-    this._live3d.setSun(sunShadingFromHass(this.hass, ambient, north, new Date(), floor));
+    this._live3d.setSun(
+      sunShadingFromHass(
+        this.hass,
+        ambient,
+        north,
+        new Date(),
+        floor,
+        this._config?.render?.mirror_x === true,
+      ),
+    );
     this._live3d.render();
   }
 
@@ -1113,29 +1134,50 @@ export class SunflowFloorplanCard extends LitElement implements LovelaceCard {
     const u = (ev.clientX - rect.left) / rect.width;
     const v = (ev.clientY - rect.top) / rect.height;
 
-    // Group tap areas take precedence over room hotspots.
+    // Floor-mesh rooms (plan-space) take precedence over screen-space group overlays.
+    const hit = hitTestRoom(this._hotspots, u, v);
+    if (hit && this.hass) {
+      const roomId = hit.room.id;
+      const byGroup = memberEntitiesForGroup(this._config, roomId, this.hass);
+      if (byGroup.length > 0) {
+        this._activateGroup(roomId, "tap");
+        return;
+      }
+      const ents = this._entitiesInFloorRoom(hit.room.id);
+      if (ents.length > 0) {
+        void this.hass.callService("light", "toggle", { entity_id: ents });
+        return;
+      }
+    }
+
     const groupHit = hitTestGroupTap(this._groupTapHotspots, u, v);
     if (groupHit && this.hass) {
       this._activateGroup(groupHit.groupId, "tap");
       return;
     }
+  }
 
-    const hit = hitTestRoom(this._hotspots, u, v);
-    if (!hit || !this.hass) {
-      return;
+  /** Entity ids for fixtures whose plan position lies in a Blender floor room. */
+  private _entitiesInFloorRoom(roomId: string): string[] {
+    const ir = this._ir;
+    if (!ir?.fixtures?.length || !this._config.entities) {
+      return [];
     }
-    const area = hit.areaId;
-    const ents = Object.values(this._config.entities ?? {})
-      .map((e) => e.entity)
-      .filter((id) => {
-        const st = this.hass.states[id];
-        const areaId = (st?.attributes as { area_id?: string } | undefined)?.area_id;
-        return area && (areaId === area || st?.entity_id.includes(area));
-      });
-    if (ents.length === 0) {
-      return;
+    const out: string[] = [];
+    for (const fx of ir.fixtures) {
+      if (fx.roomId !== roomId) {
+        continue;
+      }
+      const ent = this._config.entities[fx.id];
+      if (!ent?.entity) {
+        continue;
+      }
+      out.push(ent.entity);
+      for (const seg of ent.segments ?? []) {
+        out.push(seg.entity);
+      }
     }
-    void this.hass.callService("light", "toggle", { entity_id: ents });
+    return out;
   }
 
   private _onGroupChipClick(gid: string, ev: Event): void {

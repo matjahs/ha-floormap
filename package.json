@@ -51,6 +51,7 @@
   },
   "dependencies": {
     "@babylonjs/core": "^9.22.0",
+    "@babylonjs/inspector": "^9.22.2",
     "@babylonjs/loaders": "^9.22.0",
     "custom-card-helpers": "^1.9.0",
     "fflate": "^0.8.2",

@@ -43,3 +43,51 @@ export function horizontalDirToScreenDeg(
   const sy = x * ux + z * uz;
   return (Math.atan2(sx, sy) * 180) / Math.PI;
 }
+
+/** Screen offset → CSS degrees (0 = up, clockwise). `sy` positive = up. */
+export function screenOffsetToDeg(sx: number, sy: number): number {
+  return (Math.atan2(sx, sy) * 180) / Math.PI;
+}
+
+/** Smallest signed difference a−b in (−180, 180]. */
+export function signedAngleDeltaDeg(a: number, b: number): number {
+  return ((a - b + 540) % 360) - 180;
+}
+
+/**
+ * Compass from a projected toward-sun screen bearing (reference pattern:
+ * SunCalc/azimuth → one sun vector → overlay from that vector + plan north).
+ *
+ * Working rule: sun tick = projected toward-sun; N = sun − azimuth.
+ * When the sun is down, fall back to a projected geographic-north bearing.
+ */
+export function resolveCompassScreenBearings(opts: {
+  planNorthConfigDeg: number;
+  planNorthScreenDeg: number;
+  /** Screen deg of toward-sun; null below horizon / no sun. */
+  sunScreenDeg?: number | null;
+  sunAzimuthDeg?: number | null;
+  /** Used only when sun is unavailable. */
+  geographicNorthScreenDegFallback: number;
+}): Pick<
+  CompassBearings,
+  | "geographicNorthScreenDeg"
+  | "planNorthScreenDeg"
+  | "planNorthConfigDeg"
+  | "sunScreenDeg"
+> {
+  const sun =
+    opts.sunScreenDeg != null && Number.isFinite(opts.sunScreenDeg) ? opts.sunScreenDeg : null;
+  const az = opts.sunAzimuthDeg;
+  const geographicNorthScreenDeg =
+    sun != null && az != null && Number.isFinite(az)
+      ? sun - az
+      : opts.geographicNorthScreenDegFallback;
+
+  return {
+    geographicNorthScreenDeg,
+    planNorthScreenDeg: opts.planNorthScreenDeg,
+    planNorthConfigDeg: opts.planNorthConfigDeg,
+    sunScreenDeg: sun,
+  };
+}

@@ -60,3 +60,15 @@ describe("gltf glass materials", () => {
     expect(glassLambertOpacity(mat)).toBeCloseTo(0.25, 2);
   });
 });
+
+describe("babylon WebGPU unlit keep rules", () => {
+  it("keeps glass unlit and leaves opaque walls lit", async () => {
+    const { shouldKeepUnlitOnWebGpu } = await import("../src/renderer/live3d/babylon-gltf-materials");
+    expect(shouldKeepUnlitOnWebGpu("KozijnGlas", "P000 Kozijn")).toBe(true);
+    expect(shouldKeepUnlitOnWebGpu("flltgrey", "window")).toBe(true);
+    expect(shouldKeepUnlitOnWebGpu("WallWhite", "wall_45")).toBe(false);
+    expect(shouldKeepUnlitOnWebGpu("WallExteriorBrick", "wall_0 buitenblad")).toBe(false);
+    expect(shouldKeepUnlitOnWebGpu("WallTopBlack", "wall_0")).toBe(false);
+    expect(shouldKeepUnlitOnWebGpu("Ceiling", "ceiling_0", true)).toBe(true);
+  });
+});

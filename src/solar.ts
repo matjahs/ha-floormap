@@ -99,10 +99,11 @@ export interface SolarLocation {
   longitude: number;
 }
 
-/** Waalbandijk 469, Amsterdam (Floorplanner reference location). */
+/** Waalbandijk 469, Nijmegen area (Floorplanner reference location). */
 export const WAALBANDIJK_SUN_LOCATION: SolarLocation = {
-  latitude: 52.362,
-  longitude: 4.904,
+  // Nijmegen / Waalbandijk area (not Amsterdam).
+  latitude: 51.845,
+  longitude: 5.863,
 };
 
 export interface SolarPosition {

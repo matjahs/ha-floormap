@@ -17,6 +17,7 @@ import {
   geographicNorthRenderDir,
   horizontalDirToScreenDeg,
   PLAN_NORTH_RENDER_DIR,
+  resolveCompassScreenBearings,
   type CompassBearings,
 } from "../../compass";
 import type {
@@ -113,9 +114,9 @@ export async function createThreeLive3dRenderer(
     null;
 
   const useSceneMesh = Boolean(opts.sceneGltfUrl);
-  const fixtureLightScale = useSceneMesh ? 680 : 1400;
+  const fixtureLightScale = useSceneMesh ? 1600 : 1400;
   // Blender GLB has no baked lighting; keep readable when HA lights are off.
-  const amb = new THREE.AmbientLight(0xb8b4ac, useSceneMesh ? 0.58 : 0.22);
+  const amb = new THREE.AmbientLight(0xb8b4ac, useSceneMesh ? 0.08 : 0.22);
   scene.add(amb);
 
   const planCx = (ir.bounds.min.x + ir.bounds.max.x) / 2;
@@ -144,30 +145,34 @@ export async function createThreeLive3dRenderer(
   const fill = new THREE.DirectionalLight(0xe8eef5, useSceneMesh ? 0.35 : 0.08);
   fill.position.set(planCx - 400, 600, planCz - 300);
   fill.castShadow = false;
-  scene.add(fill);
+  // Keep for non-mesh preview; scene-mesh path folds fill into ambient (no 2nd sun).
+  if (!useSceneMesh) {
+    scene.add(fill);
+  }
 
   let lastSun: SunShading | null = null;
   let lastSunAzimuth: number | null = null;
   let lastSunElevation: number | null = null;
+  let ambientFillScale = 1;
   const planNorthConfigDeg = opts.planNorthDeg ?? 0;
   const cameraBasis = new Float64Array(6);
 
   const applySun = (shading: SunShading): void => {
     lastSun = shading;
-    // GLB scene: keep ambient low when sun is active so ceiling shadows read.
-    const sceneAmbScale = useSceneMesh ? 0.38 : 0.38;
-    const sceneFillScale = useSceneMesh ? 0.48 : 0.24;
-    const sceneSunScale = useSceneMesh ? 1.12 : 0.22;
+    const sunOn = shading.enabled && shading.sunIntensity > 0.04;
+    const sceneSunScale = useSceneMesh ? (sunOn ? 1.75 : 0.88) : 0.22;
+    const sceneAmbScale = useSceneMesh ? (sunOn ? 0.22 : 0.42) : 0.38;
+    const sceneFillScale = useSceneMesh && sunOn ? 0 : useSceneMesh ? 0.55 : 0.24;
 
     if (!shading.enabled) {
       amb.color.setHex(0xb8b4ac);
-      amb.intensity = useSceneMesh ? 0.58 : 0.22;
+      amb.intensity = (useSceneMesh ? 0.35 : 0.22) * ambientFillScale;
       sun.color.setHex(0xfff5ea);
-      sun.intensity = useSceneMesh ? 0.72 : 0.16;
+      sun.intensity = useSceneMesh ? 0.58 : 0.16;
       sun.position.set(planCx + 600, 1100, planCz + 500);
       sun.castShadow = useSceneMesh;
       fill.color.setHex(0xe8eef5);
-      fill.intensity = useSceneMesh ? 0.22 : 0.08;
+      fill.intensity = (useSceneMesh ? 0.18 : 0.08) * ambientFillScale;
       fill.position.set(planCx - 400, 600, planCz - 300);
       scene.background = new THREE.Color("#e6e6e4");
       renderer.setClearColor(0xe6e6e4, 1);
@@ -180,20 +185,36 @@ export async function createThreeLive3dRenderer(
     sun.target.position.set(planCx, shading.targetElevationCm, planCz);
     sun.color.setRGB(shading.sunColor[0], shading.sunColor[1], shading.sunColor[2]);
     sun.intensity = shading.sunIntensity * sceneSunScale;
-    sun.castShadow = useSceneMesh && shading.sunIntensity > 0.02;
+    sun.castShadow = useSceneMesh && sunOn;
     amb.color.setRGB(
       shading.ambientColor[0],
       shading.ambientColor[1],
       shading.ambientColor[2],
     );
-    amb.intensity = shading.ambientIntensity * sceneAmbScale;
-    fill.position.set(
-      planCx - d.x * sunDist * 0.55,
-      Math.max(400, Math.abs(d.y) * sunDist * 0.4),
-      planCz - d.z * sunDist * 0.55,
-    );
-    fill.color.setRGB(shading.fillColor[0], shading.fillColor[1], shading.fillColor[2]);
-    fill.intensity = shading.fillIntensity * sceneFillScale;
+    const elev = shading.sourceElevation;
+    const skyFill =
+      useSceneMesh && !sunOn && elev != null && elev > 8
+        ? Math.min(0.16, ((elev - 8) / 40) * 0.16)
+        : 0;
+    if (useSceneMesh) {
+      amb.intensity =
+        Math.max(
+          sunOn ? 0.025 : 0.06,
+          shading.ambientIntensity * sceneAmbScale +
+            shading.fillIntensity * sceneFillScale * 0.55 +
+            skyFill,
+        ) * ambientFillScale;
+      fill.intensity = 0;
+    } else {
+      amb.intensity = (shading.ambientIntensity * sceneAmbScale + skyFill) * ambientFillScale;
+      fill.position.set(
+        planCx - d.x * sunDist * 0.55,
+        Math.max(400, Math.abs(d.y) * sunDist * 0.4),
+        planCz - d.z * sunDist * 0.55,
+      );
+      fill.color.setRGB(shading.fillColor[0], shading.fillColor[1], shading.fillColor[2]);
+      fill.intensity = (shading.fillIntensity * sceneFillScale + skyFill * 0.35) * ambientFillScale;
+    }
     const sky = new THREE.Color().setRGB(shading.sky[0], shading.sky[1], shading.sky[2]);
     scene.background = sky;
     renderer.setClearColor(sky, 1);
@@ -881,7 +902,12 @@ export async function createThreeLive3dRenderer(
 
     const group: PointLight[] = [];
     for (const pose of positions) {
-      const pl = new THREE.PointLight(col, 0, fx.diameter ? fx.diameter * 20 : 400, 2);
+      const pl = new THREE.PointLight(
+        col,
+        0,
+        fx.diameter ? Math.max(600, fx.diameter * 28) : 800,
+        2,
+      );
       const r = planToRender(pose);
       pl.position.set(r.x, r.y, r.z);
       // Only the sun casts shadow maps; HA fixture lights would exceed WebGL texture units.
@@ -1154,6 +1180,12 @@ export async function createThreeLive3dRenderer(
       lastSunElevation = shading.sourceElevation ?? null;
       applySun(shading);
     },
+    setAmbientFillScale(scale) {
+      ambientFillScale = Math.max(0, Math.min(4, scale));
+      if (lastSun) {
+        applySun(lastSun);
+      }
+    },
     getCompassBearings(): CompassBearings {
       camera.updateMatrixWorld(true);
       const right = new THREE.Vector3();
@@ -1168,24 +1200,30 @@ export async function createThreeLive3dRenderer(
       cameraBasis[5] = up.z;
 
       const geo = geographicNorthRenderDir(planNorthConfigDeg);
-      let sunScreenDeg: number | null = null;
-      if (lastSun?.enabled && lastSun.sunIntensity > 0.02) {
-        const d = lastSun.direction;
-        sunScreenDeg = horizontalDirToScreenDeg(-d.x, -d.z, cameraBasis);
-      }
-
-      return {
-        geographicNorthScreenDeg: horizontalDirToScreenDeg(geo.x, geo.z, cameraBasis),
+      const sunOk = !!lastSun?.enabled && lastSun.sunIntensity > 0.02;
+      const sunScreenDeg = sunOk
+        ? horizontalDirToScreenDeg(lastSun!.direction.x, lastSun!.direction.z, cameraBasis)
+        : null;
+      const screen = resolveCompassScreenBearings({
+        planNorthConfigDeg,
         planNorthScreenDeg: horizontalDirToScreenDeg(
           PLAN_NORTH_RENDER_DIR.x,
           PLAN_NORTH_RENDER_DIR.z,
           cameraBasis,
         ),
-        planNorthConfigDeg,
         sunScreenDeg,
+        sunAzimuthDeg: sunOk ? lastSunAzimuth : null,
+        geographicNorthScreenDegFallback: horizontalDirToScreenDeg(geo.x, geo.z, cameraBasis),
+      });
+
+      return {
+        ...screen,
         sunAzimuthDeg: lastSunAzimuth,
         sunElevationDeg: lastSunElevation,
       };
+    },
+    getSunProbes() {
+      return [];
     },
     resize(width, height) {
       camera.aspect = width / Math.max(1, height);

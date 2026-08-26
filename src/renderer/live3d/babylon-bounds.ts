@@ -12,9 +12,9 @@ export function dollhouseBoundsFromMeshes(meshes: AbstractMesh[]): DollhouseBoun
       continue;
     }
     mesh.computeWorldMatrix(true);
-    const box = mesh.getBoundingInfo().boundingBox;
-    min = Vector3.Minimize(min, box.minimumWorld);
-    max = Vector3.Maximize(max, box.maximumWorld);
+    const { min: meshMin, max: meshMax } = mesh.getHierarchyBoundingVectors(true);
+    min = Vector3.Minimize(min, meshMin);
+    max = Vector3.Maximize(max, meshMax);
     found = true;
   }
 

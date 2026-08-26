@@ -7,11 +7,13 @@
 
 import {
   emptyIR,
+  findRoomForPoint,
   type CameraIR,
   type FloorplanIR,
   type LightFixtureIR,
+  type RoomIR,
 } from "./ir";
-import type { Vec3 } from "../types";
+import type { Vec2, Vec3 } from "../types";
 
 export interface BlenderSceneCamera {
   name: string;
@@ -31,6 +33,14 @@ export interface BlenderSceneFixture {
   power: number;
 }
 
+export interface BlenderSceneRoom {
+  id: string;
+  name: string;
+  object?: string;
+  /** Plan cm polygon [[x,y], ...] */
+  polygon: [number, number][];
+}
+
 export interface BlenderSceneFile {
   source: string;
   units: "cm";
@@ -39,12 +49,16 @@ export interface BlenderSceneFile {
   planNorthDeg?: number;
   /** Building floor (e.g. 10). */
   floorLevel?: number;
+  /** Height above street level in metres (e.g. 32). */
+  floorElevationM?: number;
   camera: BlenderSceneCamera;
   bounds: {
     min: [number, number, number];
     max: [number, number, number];
   };
   fixtures: BlenderSceneFixture[];
+  /** Floor-mesh rooms for plan-space tap hotspots (move with the model). */
+  rooms?: BlenderSceneRoom[];
 }
 
 function tripleToVec3(t: [number, number, number]): Vec3 {
@@ -98,6 +112,44 @@ export function importBlenderScene(
     }
     return item;
   });
+
+  const roomsRaw = Array.isArray(raw.rooms) ? raw.rooms : [];
+  ir.rooms = roomsRaw
+    .map((r): RoomIR | null => {
+      if (!r || typeof r.id !== "string" || !Array.isArray(r.polygon) || r.polygon.length < 3) {
+        return null;
+      }
+      const polygon: Vec2[] = [];
+      for (const pt of r.polygon) {
+        if (!Array.isArray(pt) || pt.length < 2) {
+          continue;
+        }
+        const x = Number(pt[0]);
+        const y = Number(pt[1]);
+        if (!Number.isFinite(x) || !Number.isFinite(y)) {
+          continue;
+        }
+        polygon.push({ x, y });
+      }
+      if (polygon.length < 3) {
+        return null;
+      }
+      return {
+        id: r.id,
+        name: typeof r.name === "string" ? r.name : r.id,
+        levelId: "blender-main",
+        polygon,
+        areaHint: r.id,
+      };
+    })
+    .filter((r): r is RoomIR => r !== null);
+
+  for (const fx of ir.fixtures) {
+    const room = findRoomForPoint(ir, { x: fx.position.x, y: fx.position.y }, "blender-main");
+    if (room) {
+      fx.roomId = room.id;
+    }
+  }
   const fovRad = (raw.camera.fovDeg * Math.PI) / 180;
   const cam: CameraIR = {
     id: raw.camera.name,
@@ -121,6 +173,9 @@ export function importBlenderScene(
       : {}),
     ...(typeof raw.floorLevel === "number" && Number.isFinite(raw.floorLevel)
       ? { floorLevel: raw.floorLevel }
+      : {}),
+    ...(typeof raw.floorElevationM === "number" && Number.isFinite(raw.floorElevationM)
+      ? { floorElevationM: raw.floorElevationM }
       : {}),
     dollhouseView: {
       eye: {
