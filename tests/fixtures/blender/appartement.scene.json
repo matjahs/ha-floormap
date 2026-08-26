@@ -22,7 +22,8 @@
       "kind": "point",
       "position": [263.5, 547, 209],
       "color": "#fff2d6",
-      "power": 1
+      "power": 1,
+      "entity": "light.livingroom_light_3"
     },
     {
       "id": "L07",
@@ -32,7 +33,8 @@
       "end": [472.1, 1094.7, 88],
       "samples": 8,
       "color": "#fff2d6",
-      "power": 1
+      "power": 1,
+      "entity": "light.kitchen_island_nanoleaf_light_strip"
     }
   ]
 }
