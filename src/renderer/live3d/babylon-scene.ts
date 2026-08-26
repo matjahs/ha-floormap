@@ -8,14 +8,13 @@ import {
   Scene,
   ArcRotateCamera,
   Vector3,
+  Matrix,
   Color3,
   Color4,
   HemisphericLight,
   DirectionalLight,
   ShadowGenerator,
-  StandardMaterial,
-  AbstractMesh,
-  Node,
+  MultiMaterial,
 } from "@babylonjs/core";
 import "@babylonjs/loaders/glTF";
 import "@babylonjs/core/Helpers/sceneHelpers";
@@ -27,18 +26,40 @@ import {
   geographicNorthRenderDir,
   horizontalDirToScreenDeg,
   PLAN_NORTH_RENDER_DIR,
+  resolveCompassScreenBearings,
 } from "../../compass";
 import {
   resolveFixtureKind,
   resolveStripSamples,
   stripSamplePositions,
 } from "../../strip";
-import { CEILING_NAME_RE } from "./ceilings";
-import { setupBabylonGltfLighting, prepareBabylonGltfMaterials, prepareBabylonGltfLoaderForWebGpu } from "./babylon-gltf-materials";
+import {
+  isBabylonCeiling,
+  isCeilingShadowCaster,
+  prepareShadowOnlyCeiling,
+  applyCeilingLayerMaskToCamera,
+} from "./babylon-ceilings";
+import {
+  setupBabylonGltfLighting,
+  prepareBabylonGltfMaterials,
+  prepareBabylonGltfLoaderForWebGpu,
+  isBabylonGlassMaterial,
+} from "./babylon-gltf-materials";
 import { dollhouseBoundsFromMeshes } from "./babylon-bounds";
-import { applyGltfSceneScale, listLoadedSceneMeshes } from "./babylon-gltf-scene";
+import {
+  applyGltfSceneScale,
+  listLoadedSceneMeshes,
+  listSunShadowCasterMeshes,
+} from "./babylon-gltf-scene";
 import { computeDollhouseFrame } from "./dollhouse-view";
 import { createFixtureLightSystem, type FixtureLightHandle } from "./babylon-fixture-lights";
+import {
+  collectExteriorWallSamples,
+  createSunProbeMarkers,
+  readSunProbes,
+  updateSunProbeMarkers,
+} from "./babylon-sun-probes";
+import { eastWestPlanHintFromRooms } from "../../sun-probe-envelope";
 import type { Live3dGpuBackend } from "./renderer-backend";
 import type { Live3dHandle, Live3dOptions } from "./handle";
 
@@ -59,28 +80,6 @@ function planToRender(pos: Vec3): Vector3 {
 
 function renderToPlan(x: number, y: number, z: number): Vec3 {
   return { x, y: z, z: y };
-}
-
-function isBabylonCeiling(node: Node): boolean {
-  let cur: Node | null = node;
-  while (cur) {
-    if (CEILING_NAME_RE.test(cur.name)) {
-      return true;
-    }
-    cur = cur.parent;
-  }
-  return false;
-}
-
-function prepareShadowOnlyCeiling(mesh: AbstractMesh): void {
-  let mat = mesh.material as StandardMaterial | null;
-  if (!mat || !(mat instanceof StandardMaterial)) {
-    mat = new StandardMaterial(`${mesh.name}_ceilingShadow`, mesh.getScene());
-    mesh.material = mat;
-  }
-  mat.alpha = 0;
-  mat.disableColorWrite = true;
-  mat.backFaceCulling = false;
 }
 
 async function createBabylonEngine(
@@ -118,8 +117,12 @@ export async function createBabylonLive3dRenderer(
   );
   if (rendererBackend === "webgpu") {
     engine.renderEvenInBackground = true;
+    // WebGPU shadow maps: compile depth shaders via GLSL→WGSL (more reliable
+    // across sun direction quadrants than the native WGSL path on some GPUs).
+    ShadowGenerator.ForceGLSL = true;
   }
   const scene = new Scene(engine);
+  scene.useRightHandedSystem = true; // before camera / lights / glTF (skip __root__ z-flip)
   scene.clearColor = new Color4(0.9, 0.9, 0.89, 1);
   setupBabylonGltfLighting(scene);
 
@@ -139,6 +142,7 @@ export async function createBabylonLive3dRenderer(
     target,
     scene,
   );
+  applyCeilingLayerMaskToCamera(camera);
   camera.lowerRadiusLimit = span * 0.35;
   camera.upperRadiusLimit = span * 4;
   camera.wheelPrecision = 12;
@@ -150,33 +154,35 @@ export async function createBabylonLive3dRenderer(
     camera.detachControl();
   }
 
+  // Hemisphere is never shadow-occluded — keep low; ceilings only block the directional sun.
   const ambient = new HemisphericLight("ambient", new Vector3(0, 1, 0), scene);
-  ambient.intensity = 0.72;
-  ambient.groundColor = new Color3(0.52, 0.5, 0.48);
+  ambient.intensity = 0.08;
+  ambient.groundColor = new Color3(0.22, 0.21, 0.2);
   ambient.specular = Color3.Black();
 
   const sunLight = new DirectionalLight("sun", new Vector3(-0.5, -0.8, -0.4), scene);
-  sunLight.intensity = 1.05;
+  sunLight.intensity = 0.78;
   sunLight.position = new Vector3(planCx + 600, 1100, planCz + 500);
 
-  const shadowExtent = Math.max(planW, planD) * 0.88;
-  sunLight.shadowMinZ = 0.1;
-  sunLight.shadowMaxZ = shadowExtent * 4;
-  if ("shadowFrustumSize" in sunLight) {
-    (sunLight as DirectionalLight & { shadowFrustumSize: number }).shadowFrustumSize =
-      shadowExtent;
-  }
+  // Fixed ortho (shadowFrustumSize > 0). autoUpdateExtends fits a tight light-space
+  // AABB that rotates with azimuth — its edges cut through rooms and walls outside
+  // the box pop to full sun (no shadow). Keep the square large enough that the
+  // building stays inside for a full day lap.
+  const planDiagonal = Math.hypot(planW, planD);
+  sunLight.shadowFrustumSize = planDiagonal * 3;
+  sunLight.autoUpdateExtends = false;
+  sunLight.autoCalcShadowZBounds = false;
 
   const sunShadow = new ShadowGenerator(2048, sunLight);
-  sunShadow.useBlurExponentialShadowMap = true;
-  sunShadow.blurKernel = 24;
+  // PCF: less light-bleed through thin wardrobe shells than blur ESM.
+  sunShadow.usePercentageCloserFiltering = true;
+  sunShadow.filteringQuality = ShadowGenerator.QUALITY_MEDIUM;
   sunShadow.transparencyShadow = true;
-  sunShadow.bias = 0.0008;
+  sunShadow.bias = 0.001;
   sunShadow.normalBias = 0.02;
-  sunShadow.darkness = 0.42;
+  sunShadow.darkness = 0.78;
 
-  const fill = new DirectionalLight("fill", new Vector3(0.4, -0.5, 0.3), scene);
-  fill.intensity = 0.38;
+  // No second DirectionalLight — a shadowless "fill" reads as another sun and lights every room.
 
   if (rendererBackend === "webgpu") {
     prepareBabylonGltfLoaderForWebGpu();
@@ -192,23 +198,95 @@ export async function createBabylonLive3dRenderer(
 
   applyGltfSceneScale(scene, loaded);
 
+  const meshIsGlassOnly = (mesh: (typeof loaded.meshes)[number]): boolean => {
+    const mat = mesh.material;
+    if (!mat) {
+      return isBabylonGlassMaterial(mesh.name, null);
+    }
+    if (mat instanceof MultiMaterial) {
+      const subs = mat.subMaterials.filter((m): m is NonNullable<typeof m> => m != null);
+      return subs.length > 0 && subs.every((m) => isBabylonGlassMaterial(mesh.name, m));
+    }
+    return isBabylonGlassMaterial(mesh.name, mat);
+  };
+
   for (const mesh of loaded.meshes) {
-    if (mesh.name === "skyBox") {
+    if (mesh.name === "skyBox" || mesh.name === "__root__") {
       continue;
     }
     mesh.receiveShadows = true;
-    if (isBabylonCeiling(mesh)) {
-      prepareShadowOnlyCeiling(mesh);
+    // Glass must not cast — otherwise window panes block morning beams onto walls
+    // (Three live3d already skips glass casters).
+    // Ceilings: visible mesh is hidden; a shadow-only clone is registered below.
+    if (meshIsGlassOnly(mesh) || isBabylonCeiling(mesh)) {
+      mesh.receiveShadows = false;
     }
-    sunShadow.addShadowCaster(mesh);
+  }
+  // includeDescendants=false: never walk from a parent into glass/ceiling children.
+  // (Registering `__root__` with the default true would add all ~700 meshes first.)
+  for (const mesh of listSunShadowCasterMeshes(loaded.meshes, {
+    isGlass: meshIsGlassOnly,
+    isCeiling: isBabylonCeiling,
+  })) {
+    sunShadow.addShadowCaster(mesh, false);
   }
 
   prepareBabylonGltfMaterials(scene, rendererBackend === "webgpu");
 
+  // Roland pattern: hide visible ceiling, keep an invisible clone as caster.
+  for (const mesh of [...loaded.meshes]) {
+    if (!isBabylonCeiling(mesh) || isCeilingShadowCaster(mesh) || !mesh.isEnabled()) {
+      continue;
+    }
+    const caster = prepareShadowOnlyCeiling(mesh);
+    sunShadow.addShadowCaster(caster, false);
+  }
   const sceneMeshes = listLoadedSceneMeshes(loaded.meshes);
   const meshBounds = dollhouseBoundsFromMeshes(sceneMeshes);
 
-  const fixtureLightScale = 680;
+  // Aim the light-camera through the mesh AABB center (not floor) so the fixed
+  // ortho box stays centered on the building in view space.
+  let sunAim = target.clone();
+  let meshHeight = 270;
+  {
+    let ymin = Number.POSITIVE_INFINITY;
+    let ymax = Number.NEGATIVE_INFINITY;
+    for (const mesh of sceneMeshes) {
+      if (mesh.name === "skyBox") {
+        continue;
+      }
+      mesh.computeWorldMatrix(true);
+      const { min: bmin, max: bmax } = mesh.getHierarchyBoundingVectors(true);
+      ymin = Math.min(ymin, bmin.y);
+      ymax = Math.max(ymax, bmax.y);
+    }
+    if (Number.isFinite(ymin) && Number.isFinite(ymax)) {
+      const cx = meshBounds ? (meshBounds.minX + meshBounds.maxX) / 2 : planCx;
+      const cz = meshBounds ? (meshBounds.minY + meshBounds.maxY) / 2 : planCz;
+      sunAim = new Vector3(cx, (ymin + ymax) / 2, cz);
+      meshHeight = Math.max(50, ymax - ymin);
+    }
+  }
+  // Mesh span is authoritative after m→cm scale; IR alone drifts if scale is wrong.
+  const meshDiagonal = meshBounds
+    ? Math.hypot(meshBounds.maxX - meshBounds.minX, meshBounds.maxY - meshBounds.minY)
+    : planDiagonal;
+  const shadowSpan = Math.max(planDiagonal, meshDiagonal);
+  // OrthoLH size must cover the building AABB under every sun azimuth (corners of
+  // the plan square need ~planDiagonal). Use 3D diagonal × 2.5 so the inspector
+  // frustum edges stay outside the dollhouse during a lap — otherwise walls that
+  // leave the box light up top-to-bottom with no umbra.
+  const diag3 = Math.hypot(shadowSpan, meshHeight);
+  const shadowFrustumSize = Math.max(shadowSpan * 2.5, diag3 * 2.5);
+  sunLight.shadowFrustumSize = shadowFrustumSize;
+  sunLight.autoUpdateExtends = false;
+  sunLight.autoCalcShadowZBounds = false;
+  const sunPull = shadowSpan * 1.5;
+  // Depth pad through the building along the light axis (wider at low sun).
+  const shadowDepthPad = shadowSpan * 0.85;
+
+  // Higher ambient below; keep fixtures strong enough to still read on walls/floors.
+  const fixtureLightScale = 1600;
   const fixtureLightSystem = await createFixtureLightSystem(scene, fixtureLightScale);
   const lights = new Map<string, FixtureLightHandle>();
   const stripEnds = new Map<string, Vec3>();
@@ -216,6 +294,8 @@ export async function createBabylonLive3dRenderer(
   let lastSun: SunShading | null = null;
   let lastSunAzimuth: number | null = null;
   let lastSunElevation: number | null = null;
+  /** Playground slider: scales hemisphere + IBL only (not directional sun). */
+  let ambientFillScale = 1;
 
   for (const fx of ir.fixtures) {
     const start = opts.poses?.[fx.id] ?? fx.position;
@@ -234,13 +314,21 @@ export async function createBabylonLive3dRenderer(
       fx.id,
       positions,
       col,
-      fx.diameter ? fx.diameter * 20 : 400,
+      fx.diameter ? Math.max(600, fx.diameter * 28) : 800,
       planToRender,
     );
     lights.set(fx.id, group);
   }
 
   fixtureLightSystem.finalize();
+
+  // Envelope + room centroids orient ±X (living west, bedroom/office east).
+  const geoHint = eastWestPlanHintFromRooms(ir.rooms);
+  const sunProbeSamples = collectExteriorWallSamples(sceneMeshes, geoHint);
+  // Markers are playground/debug only (gated like the inspector). Sampling still runs for getSunProbes().
+  const sunProbeMarkers = opts.inspector
+    ? createSunProbeMarkers(scene, sunProbeSamples)
+    : new Map();
 
   const frameDollhouse = (): void => {
     const aspect =
@@ -265,38 +353,137 @@ export async function createBabylonLive3dRenderer(
 
   frameDollhouse();
 
+  const cameraBasis = new Float64Array(6);
+
+  /**
+   * Ground-plane compass basis: screen-up = camera forward projected on XZ
+   * (toward the dollhouse / top of the view). Forward is camera→target, so
+   * use +forward_xz — not −forward_xz (that put every bearing 180° off).
+   * Pick right-handed winding so projected sun−N matches geographic azimuth
+   * (CW = CSS rotate). Verified: production ArcRotateCamera selects rightB.
+   * Note: a 180° basis flip preserves sun−N, so winding auto-pick cannot
+   * rescue a wrong screenUp sign.
+   */
+  const fillCameraBasis = (sunDirXZ: { x: number; z: number } | null, azDeg: number | null): void => {
+    const forward = camera.getForwardRay().direction;
+    let screenUp = new Vector3(forward.x, 0, forward.z);
+    if (screenUp.lengthSquared() < 1e-10) {
+      const invView = Matrix.Invert(camera.getViewMatrix());
+      const camUp = Vector3.TransformNormal(new Vector3(0, 1, 0), invView);
+      screenUp = new Vector3(camUp.x, 0, camUp.z);
+    }
+    screenUp.normalize();
+    const rightA = new Vector3(screenUp.z, 0, -screenUp.x);
+    const rightB = rightA.scale(-1);
+
+    const write = (right: Vector3) => {
+      cameraBasis[0] = right.x;
+      cameraBasis[1] = 0;
+      cameraBasis[2] = right.z;
+      cameraBasis[3] = screenUp.x;
+      cameraBasis[4] = 0;
+      cameraBasis[5] = screenUp.z;
+    };
+
+    write(rightA);
+    if (sunDirXZ == null || azDeg == null || !Number.isFinite(azDeg)) {
+      return;
+    }
+    const geo = geographicNorthRenderDir(planNorthConfigDeg);
+    const errFor = (right: Vector3): number => {
+      write(right);
+      const n = horizontalDirToScreenDeg(geo.x, geo.z, cameraBasis);
+      const s = horizontalDirToScreenDeg(sunDirXZ.x, sunDirXZ.z, cameraBasis);
+      const delta = ((s - n + 540) % 360) - 180;
+      return Math.abs((((delta - azDeg + 540) % 360) - 180));
+    };
+    const errA = errFor(rightA);
+    const errB = errFor(rightB);
+    // Prefer rightB on ties: verified against camera view basis for dollhouse.
+    write(errB <= errA ? rightB : rightA);
+  };
+
   const applySun = (shading: SunShading): void => {
     lastSun = shading;
-    const sceneAmbScale = 0.38;
+    const sunOn = shading.enabled && shading.sunIntensity > 0.04;
+    const sceneSunScale = sunOn ? 1.75 : 0.88;
+    const sceneAmbScale = sunOn ? 0.22 : 0.42;
+    const sceneFillScale = sunOn ? 0 : 0.55;
     if (!shading.enabled) {
-      ambient.intensity = 0.62;
-      sunLight.intensity = 0.85;
-      fill.intensity = 0.28;
+      ambient.intensity = 0.35 * ambientFillScale;
+      ambient.direction = new Vector3(0, 1, 0);
+      const idleTowardSun = new Vector3(0.5, 0.8, 0.4).normalize();
+      sunLight.direction = idleTowardSun.scale(-1);
+      sunLight.position = sunAim.add(idleTowardSun.scale(sunPull));
+      sunLight.shadowFrustumSize = shadowFrustumSize;
+      sunLight.autoUpdateExtends = false;
+      sunLight.autoCalcShadowZBounds = false;
+      sunLight.shadowMinZ = Math.max(20, sunPull - shadowDepthPad);
+      sunLight.shadowMaxZ = sunPull + shadowDepthPad;
+      sunLight.intensity = 0.58;
+      sunLight.setEnabled(true);
       scene.clearColor = new Color4(0.9, 0.9, 0.89, 1);
-      sunLight.direction = new Vector3(-0.5, -0.8, -0.4);
-      scene.environmentIntensity = 0.4;
+      scene.environmentIntensity = 0.28 * ambientFillScale;
+      sunShadow.darkness = 0.32;
+      updateSunProbeMarkers(sunProbeMarkers, readSunProbes(scene, sunProbeSamples, null, false), false);
       return;
     }
     const d = shading.direction;
     const dir = new Vector3(d.x, d.y, d.z).normalize();
+    const geomEl = shading.sourceElevation ?? 35;
+    const lowSun = geomEl > 0 && geomEl < 18;
     sunLight.direction = dir.scale(-1);
-    sunLight.position = target.add(dir.scale(Math.max(planW, planD) * 1.4));
-    sunLight.intensity = shading.sunIntensity * 1.25;
+    sunLight.position = sunAim.add(dir.scale(sunPull));
+    // Re-assert fixed ortho every update — inspector / auto-extend must not shrink it.
+    sunLight.shadowFrustumSize = shadowFrustumSize;
+    sunLight.autoUpdateExtends = false;
+    sunLight.autoCalcShadowZBounds = false;
+    // Tight Z around the building (not 0→65 m). Keeps depth precision without
+    // auto-fit XY, which paints a rotating frustum edge on the floor.
+    const depthPad = shadowDepthPad * (lowSun ? 1.25 : 1);
+    sunLight.shadowMinZ = Math.max(20, sunPull - depthPad);
+    sunLight.shadowMaxZ = sunPull + depthPad;
+    // Keep bias modest — large normalBias punches light through thin closet shells.
+    sunShadow.bias = lowSun ? 0.0008 : 0.001;
+    sunShadow.normalBias = lowSun ? 0.012 : 0.02;
+    sunLight.intensity = shading.sunIntensity * sceneSunScale * (lowSun ? 1.08 : 1);
     sunLight.diffuse = new Color3(shading.sunColor[0], shading.sunColor[1], shading.sunColor[2]);
-    ambient.intensity = Math.max(0.28, shading.ambientIntensity * sceneAmbScale);
+    const elev = shading.sourceElevation;
+    const skyFill =
+      !sunOn && elev != null && elev > 8 ? Math.min(0.16, ((elev - 8) / 40) * 0.16) : 0;
+    // Do not fold fill/sky into hemisphere while the sun is up — that bypasses ceiling shadows.
+    ambient.intensity =
+      Math.max(
+        sunOn ? 0.04 : 0.06,
+        shading.ambientIntensity * sceneAmbScale +
+          shading.fillIntensity * sceneFillScale * 0.55 +
+          skyFill,
+      ) * ambientFillScale;
     ambient.diffuse = new Color3(
       shading.ambientColor[0],
       shading.ambientColor[1],
       shading.ambientColor[2],
     );
-    fill.intensity = Math.max(0.14, shading.fillIntensity * sceneAmbScale);
-    fill.diffuse = new Color3(shading.fillColor[0], shading.fillColor[1], shading.fillColor[2]);
+    ambient.groundColor = new Color3(
+      shading.fillColor[0] * (sunOn ? 0.28 : 0.55),
+      shading.fillColor[1] * (sunOn ? 0.28 : 0.55),
+      shading.fillColor[2] * (sunOn ? 0.28 : 0.55),
+    );
+    ambient.direction = sunOn
+      ? new Vector3(dir.x, Math.max(0.25, dir.y), dir.z).normalize()
+      : new Vector3(0, 1, 0);
     scene.clearColor = new Color4(shading.sky[0], shading.sky[1], shading.sky[2], 1);
-    scene.environmentIntensity = Math.max(0.25, 0.3 + shading.sunIntensity * 0.25);
-    sunShadow.darkness = 0.28 + (1 - Math.min(1, shading.sunIntensity)) * 0.35;
+    scene.environmentIntensity =
+      (sunOn ? 0.04 : Math.max(0.05, shading.ambientIntensity * 0.22)) * ambientFillScale;
+    // Hard umbra for sealed shells; keep lit wall patches readable (not 0.9+ crush).
+    sunShadow.darkness = sunOn ? (lowSun ? 0.82 : 0.76) : 0.28 + (1 - Math.min(1, shading.sunIntensity)) * 0.2;
+    sunLight.setEnabled(sunOn);
+    updateSunProbeMarkers(
+      sunProbeMarkers,
+      readSunProbes(scene, sunProbeSamples, sunOn ? d : null, sunOn),
+      sunOn,
+    );
   };
-
-  const cameraBasis = new Float64Array(6);
 
   const setStripPose = (fixtureId: string, start: Vec3, end: Vec3): void => {
     const group = lights.get(fixtureId);
@@ -318,6 +505,21 @@ export async function createBabylonLive3dRenderer(
   requestAnimationFrame(() => {
     engine.runRenderLoop(renderFrame);
   });
+
+  if (opts.inspector) {
+    void (async () => {
+      await import("@babylonjs/core/Debug/debugLayer");
+      await import("@babylonjs/inspector");
+      await scene.debugLayer.show({
+        embedMode: true,
+        overlay: true,
+        handleResize: true,
+        enablePopup: false,
+      });
+    })().catch((err: unknown) => {
+      console.warn("Babylon inspector failed to open", err);
+    });
+  }
 
   return {
     canvas,
@@ -407,36 +609,56 @@ export async function createBabylonLive3dRenderer(
       lastSunElevation = shading.sourceElevation ?? null;
       applySun(shading);
     },
-    getCompassBearings() {
-      const forward = camera.getForwardRay().direction;
-      const up = camera.upVector;
-      const right = Vector3.Cross(up, forward).normalize();
-      cameraBasis[0] = right.x;
-      cameraBasis[1] = right.y;
-      cameraBasis[2] = right.z;
-      cameraBasis[3] = up.x;
-      cameraBasis[4] = up.y;
-      cameraBasis[5] = up.z;
-
-      const geo = geographicNorthRenderDir(planNorthConfigDeg);
-      let sunScreenDeg: number | null = null;
-      if (lastSun?.enabled && lastSun.sunIntensity > 0.02) {
-        const d = lastSun.direction;
-        sunScreenDeg = horizontalDirToScreenDeg(-d.x, -d.z, cameraBasis);
+    setAmbientFillScale(scale) {
+      ambientFillScale = Math.max(0, Math.min(4, scale));
+      if (lastSun) {
+        applySun(lastSun);
       }
-
-      return {
-        geographicNorthScreenDeg: horizontalDirToScreenDeg(geo.x, geo.z, cameraBasis),
+    },
+    getCompassBearings() {
+      // Project toward-sun; N = sunScreen − azimuth. Basis winding chosen to match az.
+      const geo = geographicNorthRenderDir(planNorthConfigDeg);
+      const sunOk =
+        !!lastSun?.enabled &&
+        lastSun.sunIntensity > 0.02 &&
+        lastSunAzimuth != null &&
+        Number.isFinite(lastSunAzimuth);
+      fillCameraBasis(
+        sunOk ? { x: lastSun!.direction.x, z: lastSun!.direction.z } : null,
+        sunOk ? lastSunAzimuth : null,
+      );
+      const sunScreenDeg = sunOk
+        ? horizontalDirToScreenDeg(lastSun!.direction.x, lastSun!.direction.z, cameraBasis)
+        : null;
+      const screen = resolveCompassScreenBearings({
+        planNorthConfigDeg,
         planNorthScreenDeg: horizontalDirToScreenDeg(
           PLAN_NORTH_RENDER_DIR.x,
           PLAN_NORTH_RENDER_DIR.z,
           cameraBasis,
         ),
-        planNorthConfigDeg: planNorthConfigDeg,
         sunScreenDeg,
+        sunAzimuthDeg: sunOk ? lastSunAzimuth : null,
+        geographicNorthScreenDegFallback: horizontalDirToScreenDeg(geo.x, geo.z, cameraBasis),
+      });
+
+      return {
+        ...screen,
         sunAzimuthDeg: lastSunAzimuth,
         sunElevationDeg: lastSunElevation,
       };
+    },
+    getSunProbes() {
+      const sunOn =
+        !!lastSun?.enabled &&
+        lastSun.sunIntensity > 0.02 &&
+        lastSun.direction != null;
+      return readSunProbes(
+        scene,
+        sunProbeSamples,
+        sunOn ? lastSun!.direction : null,
+        sunOn,
+      );
     },
     resize(width, height) {
       const w = Math.max(1, Math.floor(width));
@@ -455,6 +677,9 @@ export async function createBabylonLive3dRenderer(
     dispose() {
       engine.stopRenderLoop();
       camera.detachControl();
+      if (scene.debugLayer.isVisible()) {
+        scene.debugLayer.hide();
+      }
       fixtureLightSystem.dispose();
       scene.dispose();
       engine.dispose();

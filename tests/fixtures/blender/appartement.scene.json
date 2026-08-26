@@ -4,6 +4,7 @@
   "gltfScale": 100,
   "planNorthDeg": 180,
   "floorLevel": 10,
+  "floorElevationM": 32,
   "camera": {
     "name": "DollhouseCam",
     "eye": [-49.27, 3530.95, 664.05],

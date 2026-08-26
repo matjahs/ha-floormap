@@ -5,14 +5,34 @@ import type { ISceneLoaderAsyncResult } from "@babylonjs/core/Loading/sceneLoade
 export const GLTF_SCENE_SCALE = 100;
 
 /**
- * glTF from Blender has many scene-root nodes (no __root__). Per-mesh scaling leaves
- * translations in meters and stacks geometry. Parent everything under one node instead.
+ * Scale Blender meters → live3d cm.
+ *
+ * We use Method 1: `scene.useRightHandedSystem = true` before load, so `__root__`
+ * stays identity (no sz=-1 / rotY 180). Scale `__root__` if present; otherwise
+ * parent scene-root nodes under one pivot. Never detach children from `__root__`
+ * under left-handed AUTO — that drops the Z-flip and mirrors the building.
+ *
+ * Scale exactly once. A prior bug called setAll(100) and then *= 100 → 10000×,
+ * which made the shadow ortho frustum (~IR cm) miss the mesh and left sealed
+ * rooms fully sunlit.
  */
 export function applyGltfSceneScale(
   scene: Scene,
   loaded: ISceneLoaderAsyncResult,
   scale = GLTF_SCENE_SCALE,
 ): TransformNode {
+  const existingRoot =
+    loaded.meshes.find((m) => m.name === "__root__") ??
+    loaded.transformNodes.find((n) => n.name === "__root__");
+
+  if (existingRoot) {
+    existingRoot.scaling.x *= scale;
+    existingRoot.scaling.y *= scale;
+    existingRoot.scaling.z *= scale;
+    existingRoot.computeWorldMatrix(true);
+    return existingRoot;
+  }
+
   const gltfRoot = new TransformNode("live3dGltfRoot", scene);
   const reparented = new Set<Node>();
 
@@ -41,5 +61,23 @@ export function applyGltfSceneScale(
 }
 
 export function listLoadedSceneMeshes(meshes: AbstractMesh[]): AbstractMesh[] {
-  return meshes.filter((mesh) => mesh.name !== "skyBox");
+  // `__root__` is the glTF transform container — not a drawable caster / bound mesh.
+  return meshes.filter((mesh) => mesh.name !== "skyBox" && mesh.name !== "__root__");
+}
+
+/**
+ * Meshes that may cast the directional sun shadow.
+ * Never include `__root__`: `ShadowGenerator.addShadowCaster` defaults to
+ * `includeDescendants = true`, which would register every child (including glass).
+ */
+export function listSunShadowCasterMeshes(
+  meshes: AbstractMesh[],
+  opts: {
+    isGlass: (mesh: AbstractMesh) => boolean;
+    isCeiling: (mesh: AbstractMesh) => boolean;
+  },
+): AbstractMesh[] {
+  return listLoadedSceneMeshes(meshes).filter(
+    (mesh) => !opts.isGlass(mesh) && !opts.isCeiling(mesh),
+  );
 }

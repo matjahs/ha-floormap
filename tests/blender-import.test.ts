@@ -21,6 +21,7 @@ describe("importBlenderScene", () => {
     expect(ir.environment.dollhouseView?.fovDeg).toBeCloseTo(39.598);
     expect(ir.environment.planNorthDeg).toBe(180);
     expect(ir.environment.floorLevel).toBe(10);
+    expect(ir.environment.floorElevationM).toBe(32);
     expect(ir.walls).toEqual([]);
     expect(ir.furniture).toEqual([]);
   });

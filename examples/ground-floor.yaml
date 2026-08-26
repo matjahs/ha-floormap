@@ -19,15 +19,12 @@ render:
   gamma: 2.2
   transition: 400
   ambient: sun
-  # appartement9: +X E-W, +Y N-S; export -blender.y → plan +Y = render +Z (south); north 180 corrects sun.
+  # appartement9: +X E-W, +Y N-S; export -blender.y → plan +Y = south; north 180 + mirror_x keep east on +X.
   north: 180
+  mirror_x: true
   floor_level: 10
   floor_height_m: 3.05
-  sun_obstruction:
-    height_m: 22
-    distance_m: 40
-    west_height_m: 5
-    west_distance_m: 70
+  elevation_m: 32
 floors:
   - level: blender-main
     camera: DollhouseCam

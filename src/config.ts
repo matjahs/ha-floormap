@@ -35,6 +35,9 @@ export function validateConfig(config: unknown): SunflowFloorplanCardConfig {
       throw new Error("render.north must be a finite number of degrees");
     }
   }
+  if (cfg.render?.mirror_x !== undefined && typeof cfg.render.mirror_x !== "boolean") {
+    throw new Error("render.mirror_x must be a boolean");
+  }
   if (cfg.render?.floor_level !== undefined) {
     if (typeof cfg.render.floor_level !== "number" || cfg.render.floor_level < 1) {
       throw new Error("render.floor_level must be a number >= 1");
@@ -43,6 +46,11 @@ export function validateConfig(config: unknown): SunflowFloorplanCardConfig {
   if (cfg.render?.floor_height_m !== undefined) {
     if (typeof cfg.render.floor_height_m !== "number" || cfg.render.floor_height_m <= 0) {
       throw new Error("render.floor_height_m must be a positive number");
+    }
+  }
+  if (cfg.render?.elevation_m !== undefined) {
+    if (typeof cfg.render.elevation_m !== "number" || cfg.render.elevation_m < 0) {
+      throw new Error("render.elevation_m must be a number >= 0");
     }
   }
   if (cfg.render?.gpu !== undefined) {
@@ -57,6 +65,9 @@ export function validateConfig(config: unknown): SunflowFloorplanCardConfig {
   }
   if (cfg.render?.lock_camera !== undefined && typeof cfg.render.lock_camera !== "boolean") {
     throw new Error("render.lock_camera must be a boolean");
+  }
+  if (cfg.render?.inspector !== undefined && typeof cfg.render.inspector !== "boolean") {
+    throw new Error("render.inspector must be a boolean");
   }
   if (cfg.entities) {
     for (const [id, ent] of Object.entries(cfg.entities)) {

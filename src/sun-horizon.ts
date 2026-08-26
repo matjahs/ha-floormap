@@ -1,95 +1,64 @@
-/** Observer height and local skyline for sun visibility on upper floors. */
-
-export interface SunObstructionConfig {
-  /** Obstacle height above street level (m), e.g. opposite roofline. */
-  height_m?: number;
-  /** Horizontal distance to that obstacle (m). */
-  distance_m?: number;
-  /** Lower skyline on west-facing facades (canal / open side). */
-  west_height_m?: number;
-  west_distance_m?: number;
-}
+/** Floor height / elevation for apparent-horizon twilight tuning. */
 
 export interface FloorSunContext {
   floorLevel: number;
   floorHeightM: number;
-  obstructionHeightM: number;
-  obstructionDistanceM: number;
-  westObstructionHeightM?: number;
-  westObstructionDistanceM?: number;
+  /** Height above street level (m). When set, overrides (floorLevel − 1) × floorHeightM. */
+  elevationM?: number;
 }
 
-/** Typical Dutch floor height (m). */
+/** Typical Dutch floor-to-floor height (m). */
 export const DEFAULT_FLOOR_HEIGHT_M = 3.05;
 
-/** Default roofline used when no `sun_obstruction` is configured (m). */
-export const DEFAULT_OBSTRUCTION_HEIGHT_M = 22;
+/** Waalbandijk 469 level 10 — height above street (m). */
+export const WAALBANDIJK_ELEVATION_M = 32;
 
-/** Default distance to that roofline (m). */
-export const DEFAULT_OBSTRUCTION_DISTANCE_M = 40;
-
-/** Waalbandijk: quay / low trees west over the canal (m). */
-export const WAALBANDIJK_WEST_OBSTRUCTION_HEIGHT_M = 5;
-
-export const WAALBANDIJK_WEST_OBSTRUCTION_DISTANCE_M = 70;
+/** Mean Earth radius (m) for geometric horizon dip. */
+const EARTH_RADIUS_M = 6_371_000;
 
 export interface FloorSunSources {
   floorLevel?: number;
   floorHeightM?: number;
-  obstruction?: SunObstructionConfig;
+  elevationM?: number;
 }
 
-export function observerHeightM(ctx: Pick<FloorSunContext, "floorLevel" | "floorHeightM">): number {
+export function observerHeightM(ctx: Pick<FloorSunContext, "floorLevel" | "floorHeightM" | "elevationM">): number {
+  if (typeof ctx.elevationM === "number" && Number.isFinite(ctx.elevationM) && ctx.elevationM >= 0) {
+    return ctx.elevationM;
+  }
   return Math.max(0, (ctx.floorLevel - 1) * ctx.floorHeightM);
 }
 
-function horizonForObstacle(
-  eyeM: number,
-  obstacleHeightM: number,
-  distanceM: number,
-): number {
-  const rel = obstacleHeightM - eyeM;
-  if (rel <= 0) {
-    return 0;
-  }
-  return (Math.atan2(rel, distanceM) * 180) / Math.PI;
-}
-
-/** Minimum geometric sun elevation (°) to clear local obstructions at this floor. */
+/**
+ * Geometric horizon elevation (degrees) for a flat Earth limb from observer height.
+ * Negative = sun is still visible slightly below geometric elevation 0.
+ * Surroundings are not modeled; azimuth is unused.
+ */
 export function localHorizonElevationDeg(
   ctx: FloorSunContext,
-  sunAzimuthDeg: number,
+  _sunAzimuthDeg: number,
 ): number {
-  const eye = observerHeightM(ctx);
-  let horizon = horizonForObstacle(
-    eye,
-    ctx.obstructionHeightM,
-    ctx.obstructionDistanceM,
-  );
-
-  if (ctx.westObstructionHeightM != null) {
-    const az = ((sunAzimuthDeg % 360) + 360) % 360;
-    // Afternoon / west arc — balcony and canal-side windows.
-    if (az >= 200 && az <= 320) {
-      const westHorizon = horizonForObstacle(
-        eye,
-        ctx.westObstructionHeightM,
-        ctx.westObstructionDistanceM ?? ctx.obstructionDistanceM,
-      );
-      horizon = Math.max(horizon, westHorizon);
-    }
+  const h = observerHeightM(ctx);
+  if (h <= 0) {
+    return 0;
   }
-
-  return horizon;
+  const dipRad = Math.acos(EARTH_RADIUS_M / (EARTH_RADIUS_M + h));
+  return -(dipRad * 180) / Math.PI;
 }
 
-/** Elevation relative to the local skyline (negative = still blocked). */
+/**
+ * Elevation used for shading intensity / direction after local horizon dip.
+ * `render.elevation_m` (via observer height) advances dawn/dusk slightly on high floors.
+ */
 export function effectiveSunElevation(
   geometricDeg: number,
-  ctx: FloorSunContext,
-  sunAzimuthDeg: number,
+  ctx?: FloorSunContext,
+  sunAzimuthDeg?: number,
 ): number {
-  return geometricDeg - localHorizonElevationDeg(ctx, sunAzimuthDeg);
+  if (!ctx) {
+    return geometricDeg;
+  }
+  return geometricDeg - localHorizonElevationDeg(ctx, sunAzimuthDeg ?? 0);
 }
 
 export function resolveFloorSunContext(sources: FloorSunSources): FloorSunContext | undefined {
@@ -97,25 +66,27 @@ export function resolveFloorSunContext(sources: FloorSunSources): FloorSunContex
   if (typeof floorLevel !== "number" || !Number.isFinite(floorLevel) || floorLevel < 1) {
     return undefined;
   }
-  const obs = sources.obstruction ?? {};
   return {
     floorLevel: Math.round(floorLevel),
     floorHeightM: sources.floorHeightM ?? DEFAULT_FLOOR_HEIGHT_M,
-    obstructionHeightM: obs.height_m ?? DEFAULT_OBSTRUCTION_HEIGHT_M,
-    obstructionDistanceM: obs.distance_m ?? DEFAULT_OBSTRUCTION_DISTANCE_M,
-    westObstructionHeightM: obs.west_height_m,
-    westObstructionDistanceM: obs.west_distance_m,
+    ...(typeof sources.elevationM === "number" && Number.isFinite(sources.elevationM) && sources.elevationM >= 0
+      ? { elevationM: sources.elevationM }
+      : {}),
   };
 }
 
-/** Waalbandijk 469 level 10 — west over canal, other sides typical mid-rise. */
+/** Convenience for Waalbandijk tests and playground. */
 export function waalbandijkFloorSunContext(floorLevel = 10): FloorSunContext {
+  const level = Math.round(floorLevel);
+  if (!Number.isFinite(floorLevel) || level < 1) {
+    throw new Error(`waalbandijkFloorSunContext: floorLevel must be >= 1 (got ${floorLevel})`);
+  }
+  // L10 has a measured site elevation; other floors estimate from storey height.
+  const elevationM =
+    level === 10 ? WAALBANDIJK_ELEVATION_M : (level - 1) * DEFAULT_FLOOR_HEIGHT_M;
   return {
-    floorLevel,
+    floorLevel: level,
     floorHeightM: DEFAULT_FLOOR_HEIGHT_M,
-    obstructionHeightM: DEFAULT_OBSTRUCTION_HEIGHT_M,
-    obstructionDistanceM: DEFAULT_OBSTRUCTION_DISTANCE_M,
-    westObstructionHeightM: WAALBANDIJK_WEST_OBSTRUCTION_HEIGHT_M,
-    westObstructionDistanceM: WAALBANDIJK_WEST_OBSTRUCTION_DISTANCE_M,
+    elevationM,
   };
 }

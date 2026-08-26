@@ -7,36 +7,23 @@ import {
   waalbandijkFloorSunContext,
 } from "../src/sun-horizon";
 
-describe("floor sun horizon", () => {
-  const ctx10 = waalbandijkFloorSunContext(10);
-  const ctx1 = waalbandijkFloorSunContext(1);
-
-  it("places the observer on the 10th floor", () => {
-    expect(observerHeightM(ctx10)).toBeCloseTo(9 * 3.05, 2);
+describe("sun-horizon / elevation_m", () => {
+  it("prefers elevation_m for observer height", () => {
+    expect(observerHeightM({ floorLevel: 10, floorHeightM: 3.05, elevationM: 32 })).toBe(32);
+    expect(observerHeightM({ floorLevel: 10, floorHeightM: 3.05 })).toBeCloseTo(27.45, 5);
   });
 
-  it("clears mid-rise obstructions on floor 10", () => {
-    expect(localHorizonElevationDeg(ctx10, 230)).toBe(0);
+  it("dips the local horizon from observer height", () => {
+    const ctx = waalbandijkFloorSunContext(10);
+    const dip = localHorizonElevationDeg(ctx, 90);
+    expect(dip).toBeLessThan(0);
+    expect(dip).toBeGreaterThan(-0.5);
   });
 
-  it("blocks low sun more on street level than on floor 10", () => {
-    const lowSun = 8;
-    expect(effectiveSunElevation(lowSun, ctx1, 230)).toBeLessThan(
-      effectiveSunElevation(lowSun, ctx10, 230),
-    );
-  });
-
-  it("keeps afternoon sun at 16:12 essentially unchanged on floor 10", () => {
-    const afternoonEl = 39;
-    expect(effectiveSunElevation(afternoonEl, ctx10, 230)).toBeCloseTo(afternoonEl, 1);
-  });
-
-  it("resolves floor level from card config", () => {
-    expect(
-      resolveFloorSunContext({
-        floorLevel: 10,
-        obstruction: { west_height_m: 5, west_distance_m: 70 },
-      })?.floorLevel,
-    ).toBe(10);
+  it("advances effective elevation via elevation_m (high floor sees sun earlier)", () => {
+    const street = resolveFloorSunContext({ floorLevel: 1, floorHeightM: 3.05 })!;
+    const high = waalbandijkFloorSunContext(10);
+    expect(effectiveSunElevation(0, high)).toBeGreaterThan(effectiveSunElevation(0, street));
+    expect(effectiveSunElevation(-0.05, high)).toBeGreaterThan(0);
   });
 });

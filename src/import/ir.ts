@@ -128,6 +128,8 @@ export interface EnvironmentIR {
   planNorthDeg?: number;
   /** Building floor for sun horizon (e.g. 10 for Waalbandijk). */
   floorLevel?: number;
+  /** Height above street level in metres (e.g. 32 for Waalbandijk L10). */
+  floorElevationM?: number;
   /**
    * Locked dollhouse framing from the Blender camera (three.js cm, Y-up).
    * When set, live3d uses this instead of synthesizing a Bird View.

@@ -25,18 +25,19 @@ export const playgroundConfig: SunflowFloorplanCardConfig = {
     transition: 400,
     ambient: "sun",
     /**
-     * Plan +Y → render +Z (via -blender.y). Blender +Y = north, so north: 180.
-     * appartement9: +X E-W, +Y N-S geo-aligned.
+     * Plan +Y → render +Z (via -blender.y). Blender +Y toward balcony (= north by site).
+     * north: 180 + mirror_x: true keeps geographic east on +X after the Y flip.
+     * Room centroids: bedroom/office high plan X, living low plan X.
+     * Matches user sun path: morning +X, evening −X (see tests/sun.test.ts).
      */
     north: 180,
+    mirror_x: true,
     floor_level: 10,
     floor_height_m: 3.05,
-    sun_obstruction: {
-      height_m: 22,
-      distance_m: 40,
-      west_height_m: 5,
-      west_distance_m: 70,
-    },
+    elevation_m: 32,
+    lock_camera: false,
+    /** Babylon debug overlay — shadows, lights, meshes. */
+    inspector: true,
   },
   floors: [
     {
@@ -45,10 +46,28 @@ export const playgroundConfig: SunflowFloorplanCardConfig = {
     },
   ],
   groups: {
+    living: {
+      tap_action: { action: "toggle" },
+    },
     kitchen: {
       tap_action: { action: "toggle" },
     },
-    living: {
+    bedroom: {
+      tap_action: { action: "toggle" },
+    },
+    home_office: {
+      tap_action: { action: "toggle" },
+    },
+    hallway: {
+      tap_action: { action: "toggle" },
+    },
+    bathroom: {
+      tap_action: { action: "toggle" },
+    },
+    toilet: {
+      tap_action: { action: "toggle" },
+    },
+    utility: {
       tap_action: { action: "toggle" },
     },
   },
@@ -62,15 +81,15 @@ export const playgroundConfig: SunflowFloorplanCardConfig = {
     L07: { entity: "light.kitchen_island_nanoleaf_light_strip", group: "kitchen" },
     L08: { entity: "light.kitchen_led_strip_pantry", group: "kitchen" },
     L09: { entity: "light.kitchen_led_strip_fridge_kitchen_ledstrip_2", group: "kitchen" },
-    L10: { entity: "light.bedroom_1_light" },
-    L11: { entity: "light.bedroom_light_2_light_2" },
-    L12: { entity: "light.ikea_of_sweden_tradfri_bulb_e27_ws_globe_1055lm" },
-    L13: { entity: "light.office_light_b" },
-    L14: { entity: "light.hallway_1_light" },
-    L15: { entity: "light.hallway_2_light" },
-    L16: { entity: "light.toilet_light" },
-    L17: { entity: "light.bathroom" },
-    L18: { entity: "light.utility_room_shelly" },
+    L10: { entity: "light.bedroom_1_light", group: "bedroom" },
+    L11: { entity: "light.bedroom_light_2_light_2", group: "bedroom" },
+    L12: { entity: "light.ikea_of_sweden_tradfri_bulb_e27_ws_globe_1055lm", group: "home_office" },
+    L13: { entity: "light.office_light_b", group: "home_office" },
+    L14: { entity: "light.hallway_1_light", group: "hallway" },
+    L15: { entity: "light.hallway_2_light", group: "hallway" },
+    L16: { entity: "light.toilet_light", group: "toilet" },
+    L17: { entity: "light.bathroom", group: "bathroom" },
+    L18: { entity: "light.utility_room_shelly", group: "utility" },
   },
   overrides: {},
 };

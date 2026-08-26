@@ -92,21 +92,28 @@ export interface RenderConfig {
   ambient?: AmbientMode;
   /**
    * Compass heading of plan +Y in degrees (0 = north).
-   * Waalbandijk Blender export: 180 (appartement9 +Y north; plan Y flip via -blender.y).
+   * Waalbandijk Blender export: 180 (plan +Y = south after `-blender.y`) with `mirror_x: true`.
    */
   north?: number;
+  /**
+   * Flip sun/render +X after applying `north` rotation.
+   * Use with Y-mirrored plan meshes so geographic east stays +X (Waalbandijk: true).
+   */
+  mirror_x?: boolean;
   /** Building floor (1 = street). Waalbandijk apartment is 10. */
   floor_level?: number;
   /** Floor-to-floor height in metres (default 3.05). */
   floor_height_m?: number;
-  /** Local skyline obstructions for sun visibility (matters most on upper floors). */
-  sun_obstruction?: import("./sun-horizon").SunObstructionConfig;
+  /** Height above street level in metres (Waalbandijk L10: 32). Overrides floor_level × floor_height estimate for sun. */
+  elevation_m?: number;
   /** live3d renderer: webgpu (default) or force webgl. */
   gpu?: Live3dGpuBackend;
   /** live3d scene engine: three (default) or babylon. */
   engine?: Live3dEngine;
   /** When true (default), keep the dollhouse camera fixed. Set false to orbit/pan. */
   lock_camera?: boolean;
+  /** Babylon only: show the Babylon.js inspector (playground / debug). */
+  inspector?: boolean;
 }
 
 export interface SunflowFloorplanCardConfig extends LovelaceCardConfig {
