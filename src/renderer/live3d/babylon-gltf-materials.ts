@@ -1,7 +1,8 @@
 /**
- * Architecture floors/walls export as lit PBR; glass/ceilings may be KHR unlit.
+ * Architecture floors/walls export as lit PBR; some meshes may be KHR unlit.
  * On WebGPU: strip heavy KHR extensions, keep opaque architecture lit so
- * clustered HA fixtures shade rooms; only tune export-time unlit (glass).
+ * clustered HA fixtures shade rooms. Glass must stay lit (not unlit) or panes
+ * read as emissive at night — unlit albedo ignores sun/ambient.
  */
 import {
   AbstractMesh,
@@ -67,7 +68,6 @@ export function prepareBabylonGltfLoaderForWebGpu(): void {
 }
 
 function tuneUnlitMaterial(pbr: PBRMaterial, meshName: string): void {
-  const glass = isGlassLabel(pbr.name, meshName);
   const isFloor = /^floor[_\s]/i.test(meshName) || /^floor_/i.test(pbr.name);
   const isWall = isWallLabel(`${pbr.name} ${meshName}`.toLowerCase());
   if (!pbr.unlit) {
@@ -75,18 +75,16 @@ function tuneUnlitMaterial(pbr: PBRMaterial, meshName: string): void {
   }
   pbr.maxSimultaneousLights = 0;
   pbr.environmentIntensity = 0;
-  pbr.backFaceCulling = isFloor || glass || isWall ? false : pbr.backFaceCulling;
+  pbr.emissiveColor = Color3.Black();
+  pbr.emissiveIntensity = 0;
+  pbr.backFaceCulling = isFloor || isWall ? false : pbr.backFaceCulling;
   if (pbr.albedoTexture) {
     pbr.albedoTexture.gammaSpace = true;
   }
   if (pbr.name === "WallWhite" || (isWall && !pbr.albedoTexture)) {
     pbr.albedoColor = RAL_9010.clone();
   }
-  if (glass) {
-    pbr.alpha = 0.35;
-    pbr.transparencyMode = PBRMaterial.PBRMATERIAL_ALPHABLEND;
-    pbr.albedoColor = Color3.Lerp(pbr.albedoColor, new Color3(0.86, 0.91, 0.96), 0.55);
-  } else if (pbr.alpha < 0.999) {
+  if (pbr.alpha < 0.999) {
     pbr.transparencyMode = PBRMaterial.PBRMATERIAL_ALPHABLEND;
   }
 }
@@ -98,6 +96,8 @@ function stripHeavyPbrFeatures(pbr: PBRMaterial): void {
   pbr.lightmapTexture = null;
   pbr.reflectionTexture = null;
   pbr.emissiveTexture = null;
+  pbr.emissiveColor = Color3.Black();
+  pbr.emissiveIntensity = 0;
   if (pbr.sheen) {
     pbr.sheen.isEnabled = false;
   }
@@ -121,7 +121,7 @@ function tuneLitMaterial(pbr: PBRMaterial, meshName: string): void {
   const glass = isGlassLabel(pbr.name, meshName);
   const isFloor = /^floor[_\s]/i.test(meshName) || /^floor_/i.test(pbr.name);
   const isWall = isWallLabel(`${pbr.name} ${meshName}`.toLowerCase());
-  pbr.backFaceCulling = isFloor || isWall ? false : pbr.backFaceCulling;
+  pbr.backFaceCulling = isFloor || glass || isWall ? false : pbr.backFaceCulling;
   if (pbr.albedoTexture) {
     pbr.albedoTexture.gammaSpace = true;
   }
@@ -132,9 +132,12 @@ function tuneLitMaterial(pbr: PBRMaterial, meshName: string): void {
     pbr.alpha = 0.35;
     pbr.transparencyMode = PBRMaterial.PBRMATERIAL_ALPHABLEND;
     pbr.metallic = 0;
-    pbr.roughness = 0.08;
+    pbr.roughness = 0.22;
+    pbr.specularIntensity = 0.35;
     pbr.indexOfRefraction = 1.45;
-    pbr.albedoColor = Color3.Lerp(pbr.albedoColor, new Color3(0.86, 0.91, 0.96), 0.55);
+    // Cool tint, but keep albedo dim enough that night ambient does not read as emission.
+    pbr.albedoColor = Color3.Lerp(pbr.albedoColor, new Color3(0.55, 0.62, 0.7), 0.45);
+    pbr.environmentIntensity = 0.02;
   } else {
     pbr.transparencyMode = PBRMaterial.PBRMATERIAL_OPAQUE;
     pbr.opacityTexture = null;
@@ -142,12 +145,15 @@ function tuneLitMaterial(pbr: PBRMaterial, meshName: string): void {
 }
 
 function simplifyPbrForWebGpu(pbr: PBRMaterial, meshName: string): void {
-  if (pbr.unlit || isGlassLabel(pbr.name, meshName)) {
+  // Glass must be lit — unlit panes keep full albedo when the sun is down.
+  if (isGlassLabel(pbr.name, meshName)) {
+    tuneLitMaterial(pbr, meshName);
+    return;
+  }
+  if (pbr.unlit) {
     stripHeavyPbrFeatures(pbr);
     pbr.opacityTexture = null;
-    if (!isGlassLabel(pbr.name, meshName)) {
-      pbr.transparencyMode = PBRMaterial.PBRMATERIAL_OPAQUE;
-    }
+    pbr.transparencyMode = PBRMaterial.PBRMATERIAL_OPAQUE;
     pbr.environmentIntensity = 0;
     pbr.specularIntensity = 0;
     pbr.metallic = 0;
@@ -168,6 +174,9 @@ function processMeshMaterials(mesh: AbstractMesh, webGpu: boolean): number {
   const handle = (sub: PBRMaterial): void => {
     if (webGpu) {
       simplifyPbrForWebGpu(sub, mesh.name);
+    } else if (isGlassLabel(sub.name, mesh.name)) {
+      // Export may mark panes KHR_unlit; still light them so night dims the glass.
+      tuneLitMaterial(sub, mesh.name);
     } else if (sub.unlit) {
       tuneUnlitMaterial(sub, mesh.name);
     } else {
@@ -190,7 +199,7 @@ function processMeshMaterials(mesh: AbstractMesh, webGpu: boolean): number {
   return 0;
 }
 
-/** Tune materials for WebGPU: keep lit architecture; unlit only for glass/export-unlit. */
+/** Tune materials for WebGPU: keep lit architecture; unlit only for export-unlit non-glass. */
 export function simplifyBabylonGltfMaterialsForWebGpu(scene: Scene): number {
   const engine = scene.getEngine();
   if (!(engine instanceof WebGPUEngine)) {
@@ -233,8 +242,11 @@ export function tuneBabylonGltfMaterials(scene: Scene): void {
       mat.alpha = 0.35;
       mat.transparencyMode = PBRMaterial.PBRMATERIAL_ALPHABLEND;
       mat.metallic = 0;
-      mat.roughness = 0.08;
+      mat.roughness = Math.max(mat.roughness ?? 0.22, 0.18);
       mat.indexOfRefraction = 1.45;
+      mat.environmentIntensity = Math.min(mat.environmentIntensity ?? 0.02, 0.03);
+      mat.emissiveColor = Color3.Black();
+      mat.emissiveIntensity = 0;
     }
   }
 }
@@ -247,9 +259,15 @@ export function prepareBabylonGltfMaterials(scene: Scene, webGpu: boolean): void
   tuneBabylonGltfMaterials(scene);
 }
 
-/** True when WebGPU should keep a material shadeless (glass or already unlit). */
+/**
+ * True when WebGPU should keep a material shadeless.
+ * Glass is excluded — it must receive lights so night ambient dims the panes.
+ */
 export function shouldKeepUnlitOnWebGpu(materialName: string, meshName = "", alreadyUnlit = false): boolean {
-  return alreadyUnlit || isGlassLabel(materialName, meshName);
+  if (isGlassLabel(materialName, meshName)) {
+    return false;
+  }
+  return alreadyUnlit;
 }
 
 export function isBabylonGlassMaterial(meshName: string, material: unknown): boolean {

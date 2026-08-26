@@ -1,5 +1,5 @@
 import { NullEngine } from "@babylonjs/core/Engines/nullEngine";
-import { FreeCamera, MultiMaterial, Scene, Vector3 } from "@babylonjs/core";
+import { FreeCamera, MultiMaterial, PBRMaterial, Scene, Vector3 } from "@babylonjs/core";
 import { describe, expect, it } from "vitest";
 import {
   applyGltfSceneScale,
@@ -8,7 +8,10 @@ import {
   listSunShadowCasterMeshes,
 } from "../src/renderer/live3d/babylon-gltf-scene";
 import { isBabylonCeiling } from "../src/renderer/live3d/babylon-ceilings";
-import { isBabylonGlassMaterial } from "../src/renderer/live3d/babylon-gltf-materials";
+import {
+  isBabylonGlassMaterial,
+  prepareBabylonGltfMaterials,
+} from "../src/renderer/live3d/babylon-gltf-materials";
 import { loadGlbFile } from "./babylon-node-file-loader";
 
 describe("babylon gltf scene scale", () => {
@@ -71,6 +74,31 @@ describe("babylon gltf scene scale", () => {
     // appartement.glb has window panes that must not cast.
     const glassInScene = sceneMeshes.filter(meshIsGlassOnly);
     expect(glassInScene.length).toBeGreaterThanOrEqual(10);
+    engine.dispose();
+  });
+
+  it("keeps glass lit so night ambient can dim panes (not unlit emission)", async () => {
+    const engine = new NullEngine();
+    const scene = new Scene(engine);
+    scene.useRightHandedSystem = true;
+    scene.activeCamera = new FreeCamera("c", new Vector3(0, 0, 0), scene);
+    const loaded = await loadGlbFile(scene, "dev/public/local/floorplan/appartement.glb");
+    applyGltfSceneScale(scene, loaded);
+    prepareBabylonGltfMaterials(scene, false);
+
+    const glassMats: PBRMaterial[] = [];
+    for (const mesh of loaded.meshes) {
+      const mat = mesh.material;
+      if (mat instanceof PBRMaterial && isBabylonGlassMaterial(mesh.name, mat)) {
+        glassMats.push(mat);
+      }
+    }
+    expect(glassMats.length).toBeGreaterThanOrEqual(1);
+    for (const mat of glassMats) {
+      expect(mat.unlit).toBe(false);
+      expect(mat.emissiveIntensity ?? 0).toBe(0);
+      expect(mat.alpha).toBeLessThan(1);
+    }
     engine.dispose();
   });
 });
