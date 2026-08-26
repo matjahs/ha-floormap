@@ -62,10 +62,10 @@ describe("gltf glass materials", () => {
 });
 
 describe("babylon WebGPU unlit keep rules", () => {
-  it("keeps glass unlit and leaves opaque walls lit", async () => {
+  it("does not keep glass unlit (night would look emissive) and leaves walls lit", async () => {
     const { shouldKeepUnlitOnWebGpu } = await import("../src/renderer/live3d/babylon-gltf-materials");
-    expect(shouldKeepUnlitOnWebGpu("KozijnGlas", "P000 Kozijn")).toBe(true);
-    expect(shouldKeepUnlitOnWebGpu("flltgrey", "window")).toBe(true);
+    expect(shouldKeepUnlitOnWebGpu("KozijnGlas", "P000 Kozijn")).toBe(false);
+    expect(shouldKeepUnlitOnWebGpu("flltgrey", "window")).toBe(false);
     expect(shouldKeepUnlitOnWebGpu("WallWhite", "wall_45")).toBe(false);
     expect(shouldKeepUnlitOnWebGpu("WallExteriorBrick", "wall_0 buitenblad")).toBe(false);
     expect(shouldKeepUnlitOnWebGpu("WallTopBlack", "wall_0")).toBe(false);
