@@ -66,6 +66,8 @@ export function applyCeilingLayerMaskToCamera(camera: Camera): void {
 /**
  * Hide the visible ceiling and return a Roland-style shadow-only clone.
  * Caller must `removeShadowCaster(visible)` and `addShadowCaster(clone)`.
+ * Applies invisible material + ceiling layerMask to the clone root and all
+ * descendant meshes (glTF multi-material `_primitive*` children).
  */
 export function prepareShadowOnlyCeiling(mesh: AbstractMesh, scene?: Scene): AbstractMesh {
   const scn = scene ?? mesh.getScene();
@@ -85,10 +87,17 @@ export function prepareShadowOnlyCeiling(mesh: AbstractMesh, scene?: Scene): Abs
   mat.disableDepthWrite = flags.disableDepthWrite;
   mat.backFaceCulling = flags.backFaceCulling;
   mat.transparencyMode = flags.transparencyMode;
-  shadowMesh.material = mat;
-  shadowMesh.isPickable = false;
-  shadowMesh.receiveShadows = false;
-  shadowMesh.layerMask = LIVE3D_CEILING_LAYER;
+
+  const applyShadowOnly = (node: AbstractMesh): void => {
+    node.material = mat;
+    node.isPickable = false;
+    node.receiveShadows = false;
+    node.layerMask = LIVE3D_CEILING_LAYER;
+  };
+  applyShadowOnly(shadowMesh);
+  for (const child of shadowMesh.getChildMeshes()) {
+    applyShadowOnly(child);
+  }
 
   // Visible slab off — shadow clone keeps casting (Roland click-tree pattern).
   mesh.setEnabled(false);

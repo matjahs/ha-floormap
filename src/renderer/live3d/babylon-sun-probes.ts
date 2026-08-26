@@ -272,7 +272,7 @@ export function collectExteriorWallSamples(
   // Spatial dedupe: prefer exterior over interior in the same facade cell.
   const best = new Map<string, SunProbeSampleExt>();
   for (const sample of candidates) {
-    const key = probeSpatialKey(sample.side, sample.position.x, sample.position.z);
+    const key = probeSpatialKey(sample.position.x, sample.position.z);
     const prev = best.get(key);
     if (!prev) {
       best.set(key, sample);
@@ -314,7 +314,7 @@ export function rayOccludedTowardSun(
   skipMeshUniqueId: number,
   maxDistance = RAY_LENGTH_CM,
 ): boolean {
-  const dir = towardSun.normalize();
+  const dir = towardSun.normalizeToNew();
   let cursor = origin.clone();
   let remaining = maxDistance;
   for (let hop = 0; hop < 8; hop++) {

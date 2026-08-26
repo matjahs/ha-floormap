@@ -191,29 +191,22 @@ export async function createThreeLive3dRenderer(
       shading.ambientColor[1],
       shading.ambientColor[2],
     );
-    const elev = shading.sourceElevation;
-    const skyFill =
-      useSceneMesh && !sunOn && elev != null && elev > 8
-        ? Math.min(0.16, ((elev - 8) / 40) * 0.16)
-        : 0;
     if (useSceneMesh) {
       amb.intensity =
         Math.max(
           sunOn ? 0.025 : 0.06,
-          shading.ambientIntensity * sceneAmbScale +
-            shading.fillIntensity * sceneFillScale * 0.55 +
-            skyFill,
+          shading.ambientIntensity * sceneAmbScale + shading.fillIntensity * sceneFillScale * 0.55,
         ) * ambientFillScale;
       fill.intensity = 0;
     } else {
-      amb.intensity = (shading.ambientIntensity * sceneAmbScale + skyFill) * ambientFillScale;
+      amb.intensity = shading.ambientIntensity * sceneAmbScale * ambientFillScale;
       fill.position.set(
         planCx - d.x * sunDist * 0.55,
         Math.max(400, Math.abs(d.y) * sunDist * 0.4),
         planCz - d.z * sunDist * 0.55,
       );
       fill.color.setRGB(shading.fillColor[0], shading.fillColor[1], shading.fillColor[2]);
-      fill.intensity = (shading.fillIntensity * sceneFillScale + skyFill * 0.35) * ambientFillScale;
+      fill.intensity = shading.fillIntensity * sceneFillScale * ambientFillScale;
     }
     const sky = new THREE.Color().setRGB(shading.sky[0], shading.sky[1], shading.sky[2]);
     scene.background = sky;

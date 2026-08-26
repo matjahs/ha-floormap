@@ -166,10 +166,8 @@ export async function createBabylonLive3dRenderer(
 
   // Fixed ortho (shadowFrustumSize > 0). autoUpdateExtends fits a tight light-space
   // AABB that rotates with azimuth — its edges cut through rooms and walls outside
-  // the box pop to full sun (no shadow). Keep the square large enough that the
-  // building stays inside for a full day lap.
+  // the box pop to full sun (no shadow). Size is set after mesh bounds below.
   const planDiagonal = Math.hypot(planW, planD);
-  sunLight.shadowFrustumSize = planDiagonal * 3;
   sunLight.autoUpdateExtends = false;
   sunLight.autoCalcShadowZBounds = false;
 
@@ -272,12 +270,11 @@ export async function createBabylonLive3dRenderer(
     ? Math.hypot(meshBounds.maxX - meshBounds.minX, meshBounds.maxY - meshBounds.minY)
     : planDiagonal;
   const shadowSpan = Math.max(planDiagonal, meshDiagonal);
-  // OrthoLH size must cover the building AABB under every sun azimuth (corners of
-  // the plan square need ~planDiagonal). Use 3D diagonal × 2.5 so the inspector
-  // frustum edges stay outside the dollhouse during a lap — otherwise walls that
-  // leave the box light up top-to-bottom with no umbra.
+  // OrthoLH must cover the building AABB under every sun azimuth. Light-space
+  // footprint is bounded by the 3D diagonal (azimuth-independent); ~1.3× leaves
+  // margin without the old 2.5× texel waste (~2.75 cm/texel → ~1.4 cm/texel).
   const diag3 = Math.hypot(shadowSpan, meshHeight);
-  const shadowFrustumSize = Math.max(shadowSpan * 2.5, diag3 * 2.5);
+  const shadowFrustumSize = diag3 * 1.3;
   sunLight.shadowFrustumSize = shadowFrustumSize;
   sunLight.autoUpdateExtends = false;
   sunLight.autoCalcShadowZBounds = false;
@@ -329,6 +326,32 @@ export async function createBabylonLive3dRenderer(
   const sunProbeMarkers = opts.inspector
     ? createSunProbeMarkers(scene, sunProbeSamples)
     : new Map();
+  /** Skip CPU pickWithRay when the sun direction has not moved meaningfully. */
+  let cachedSunProbeKey: string | null = null;
+  let cachedSunProbeReadings: ReturnType<typeof readSunProbes> | null = null;
+
+  const sunProbeCacheKey = (
+    toward: { x: number; y: number; z: number } | null,
+    sunUp: boolean,
+  ): string => {
+    if (!sunUp || toward == null) {
+      return "off";
+    }
+    return `${toward.x.toFixed(3)}:${toward.y.toFixed(3)}:${toward.z.toFixed(3)}`;
+  };
+
+  const resolveSunProbes = (
+    toward: { x: number; y: number; z: number } | null,
+    sunUp: boolean,
+  ): ReturnType<typeof readSunProbes> => {
+    const key = sunProbeCacheKey(toward, sunUp);
+    if (key === cachedSunProbeKey && cachedSunProbeReadings) {
+      return cachedSunProbeReadings;
+    }
+    cachedSunProbeKey = key;
+    cachedSunProbeReadings = readSunProbes(scene, sunProbeSamples, toward, sunUp);
+    return cachedSunProbeReadings;
+  };
 
   const frameDollhouse = (): void => {
     const aspect =
@@ -425,7 +448,7 @@ export async function createBabylonLive3dRenderer(
       scene.clearColor = new Color4(0.9, 0.9, 0.89, 1);
       scene.environmentIntensity = 0.28 * ambientFillScale;
       sunShadow.darkness = 0.32;
-      updateSunProbeMarkers(sunProbeMarkers, readSunProbes(scene, sunProbeSamples, null, false), false);
+      updateSunProbeMarkers(sunProbeMarkers, resolveSunProbes(null, false), false);
       return;
     }
     const d = shading.direction;
@@ -448,16 +471,11 @@ export async function createBabylonLive3dRenderer(
     sunShadow.normalBias = lowSun ? 0.012 : 0.02;
     sunLight.intensity = shading.sunIntensity * sceneSunScale * (lowSun ? 1.08 : 1);
     sunLight.diffuse = new Color3(shading.sunColor[0], shading.sunColor[1], shading.sunColor[2]);
-    const elev = shading.sourceElevation;
-    const skyFill =
-      !sunOn && elev != null && elev > 8 ? Math.min(0.16, ((elev - 8) / 40) * 0.16) : 0;
-    // Do not fold fill/sky into hemisphere while the sun is up — that bypasses ceiling shadows.
+    // Do not fold fill into hemisphere while the sun is up — that bypasses ceiling shadows.
     ambient.intensity =
       Math.max(
         sunOn ? 0.04 : 0.06,
-        shading.ambientIntensity * sceneAmbScale +
-          shading.fillIntensity * sceneFillScale * 0.55 +
-          skyFill,
+        shading.ambientIntensity * sceneAmbScale + shading.fillIntensity * sceneFillScale * 0.55,
       ) * ambientFillScale;
     ambient.diffuse = new Color3(
       shading.ambientColor[0],
@@ -480,7 +498,7 @@ export async function createBabylonLive3dRenderer(
     sunLight.setEnabled(sunOn);
     updateSunProbeMarkers(
       sunProbeMarkers,
-      readSunProbes(scene, sunProbeSamples, sunOn ? d : null, sunOn),
+      resolveSunProbes(sunOn ? d : null, sunOn),
       sunOn,
     );
   };
@@ -653,12 +671,7 @@ export async function createBabylonLive3dRenderer(
         !!lastSun?.enabled &&
         lastSun.sunIntensity > 0.02 &&
         lastSun.direction != null;
-      return readSunProbes(
-        scene,
-        sunProbeSamples,
-        sunOn ? lastSun!.direction : null,
-        sunOn,
-      );
+      return resolveSunProbes(sunOn ? lastSun!.direction : null, sunOn);
     },
     resize(width, height) {
       const w = Math.max(1, Math.floor(width));

@@ -78,12 +78,9 @@ describe("probeStationsAlongLength", () => {
 });
 
 describe("probeSpatialKey", () => {
-  it("buckets nearby probes", () => {
-    expect(probeSpatialKey("exterior", 100, 200, 80)).toBe(
-      probeSpatialKey("exterior", 110, 210, 80),
-    );
-    expect(probeSpatialKey("exterior", 100, 200, 80)).not.toBe(
-      probeSpatialKey("interior", 100, 200, 80),
-    );
+  it("buckets nearby probes without embedding side", () => {
+    expect(probeSpatialKey(100, 200, 80)).toBe(probeSpatialKey(110, 210, 80));
+    expect(probeSpatialKey(100, 200, 80)).toBe(probeSpatialKey(100, 200, 80));
+    expect(probeSpatialKey(100, 200, 80)).not.toBe(probeSpatialKey(400, 200, 80));
   });
 });
