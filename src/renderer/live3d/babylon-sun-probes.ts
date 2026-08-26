@@ -269,7 +269,9 @@ export function collectExteriorWallSamples(
     candidates.push(...samplesForExteriorWallMesh(mesh, env, xPointsEast));
   }
 
-  // Spatial dedupe: prefer exterior over interior in the same facade cell.
+  // Spatial dedupe in the same facade cell: keep interior over exterior.
+  // Interior answers "does this room get sun"; faces of one wall sit ~24 cm apart
+  // and would otherwise collide in an 80 cm cell with exterior winning.
   const best = new Map<string, SunProbeSampleExt>();
   for (const sample of candidates) {
     const key = probeSpatialKey(sample.position.x, sample.position.z);
@@ -278,7 +280,7 @@ export function collectExteriorWallSamples(
       best.set(key, sample);
       continue;
     }
-    if (sample.side === "exterior" && prev.side === "interior") {
+    if (sample.side === "interior" && prev.side === "exterior") {
       best.set(key, sample);
     }
   }

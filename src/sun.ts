@@ -113,30 +113,6 @@ export function playgroundSunPresets(
   } as const;
 }
 
-/** Which plan axis the horizontal sun vector favors (east/west = ±X; south = geographic south). */
-export function sunHorizontalFacade(
-  azimuthDeg: number,
-  elevationDeg: number,
-  northDeg = 0,
-  mirrorX = false,
-): "east" | "west" | "south" | "other" {
-  const d = sunDirection(azimuthDeg, Math.max(elevationDeg, 0), northDeg, mirrorX);
-  if (d.x > 0.35) {
-    return "east";
-  }
-  if (d.x < -0.35) {
-    return "west";
-  }
-  // Align with geographic south in the same (north, mirrorX) frame — not raw plan +Z
-  // (at north=0 south is −Z; at north=180+mirror_x it is +Z).
-  const south = sunDirection(180, 0, northDeg, mirrorX);
-  const hLen = Math.hypot(d.x, d.z) || 1;
-  if ((d.x * south.x + d.z * south.z) / hLen > 0.25) {
-    return "south";
-  }
-  return "other";
-}
-
 /** Clock / playground stand-in when `sun.sun` is missing. Uses Waalbandijk by default. */
 export function approximateSun(
   now: Date,

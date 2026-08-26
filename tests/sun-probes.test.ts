@@ -84,3 +84,20 @@ describe("probeSpatialKey", () => {
     expect(probeSpatialKey(100, 200, 80)).not.toBe(probeSpatialKey(400, 200, 80));
   });
 });
+
+describe("same-cell probe preference", () => {
+  it("documents interior winning over exterior (babylon-sun-probes dedupe)", () => {
+    // Faces of one wall are ~24 cm apart; an 80 cm cell can hold both.
+    // Interior answers "does this room get sun" — keep it when keys collide.
+    type Side = "interior" | "exterior";
+    const prefer = (prev: Side, next: Side): Side => {
+      if (next === "interior" && prev === "exterior") {
+        return next;
+      }
+      return prev;
+    };
+    expect(prefer("exterior", "interior")).toBe("interior");
+    expect(prefer("interior", "exterior")).toBe("interior");
+    expect(prefer("interior", "interior")).toBe("interior");
+  });
+});
