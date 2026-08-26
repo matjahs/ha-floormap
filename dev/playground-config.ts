@@ -36,8 +36,8 @@ export const playgroundConfig: SunflowFloorplanCardConfig = {
     floor_height_m: 3.05,
     elevation_m: 32,
     lock_camera: false,
-    /** Babylon debug overlay — shadows, lights, meshes. */
-    inspector: true,
+    /** Off by default — turn on for Babylon mesh/light debugging. */
+    inspector: false,
   },
   floors: [
     {

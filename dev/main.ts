@@ -6,55 +6,8 @@ import { CARD_TYPE, SunflowFloorplanCard } from "../src/card";
 import { overridesToPlacements } from "../src/pose";
 import { entityIdsFromConfig, playgroundConfig } from "./playground-config";
 import { MockHass, registerHaStubs } from "./mock-hass";
-import { approximateSun, playgroundSunPresets } from "../src/sun";
-import { mountCompassOverlay } from "./compass-overlay";
+import { playgroundSunPresets } from "../src/sun";
 
-const SUN_PRESETS = playgroundSunPresets();
-
-function labelSunPreset(key: keyof typeof SUN_PRESETS, fallback: string): string {
-  if (key === "afternoon") {
-    return "16:12";
-  }
-  const labels: Record<string, string> = {
-    dawn: "07:00",
-    noon: "13:00",
-    sunset: "20:00",
-    night: "23:00",
-  };
-  const time = labels[key] ?? "";
-  return time ? `${fallback} ${time}` : fallback;
-}
-
-function wireSunPresetButtons(): void {
-  const map: Array<[string, keyof typeof SUN_PRESETS]> = [
-    ["#sun-dawn", "dawn"],
-    ["#sun-noon", "noon"],
-    ["#sun-afternoon", "afternoon"],
-    ["#sun-sunset", "sunset"],
-    ["#sun-night", "night"],
-  ];
-  for (const [sel, key] of map) {
-    const btn = document.querySelector(sel) as HTMLButtonElement | null;
-    if (!btn) {
-      continue;
-    }
-    const base = btn.textContent?.replace(/\s+\d{2}:\d{2}$/, "") ?? key;
-    btn.textContent = labelSunPreset(key, base);
-  }
-}
-
-/** Summer reference day at Waalbandijk — 15‑minute steps for a smooth 24h lap. */
-const TIMELAPSE_STEPS = 96;
-const TIMELAPSE_MS = 110;
-const TIMELAPSE_DAY = "2026-08-24";
-const TIMELAPSE_TZ = "+02:00";
-
-let timelapseTimer: number | null = null;
-let timelapseStep = 0;
-let timelapseClockLabel = "";
-const sunTimelapseBtn = document.querySelector("#sun-timelapse") as HTMLButtonElement | null;
-const sunScrub = document.querySelector("#sun-scrub") as HTMLInputElement | null;
-const sunClockEl = document.querySelector("#sun-clock") as HTMLElement | null;
 const ambientFillSlider = document.querySelector("#ambient-fill") as HTMLInputElement | null;
 const ambientFillValue = document.querySelector("#ambient-fill-value") as HTMLElement | null;
 
@@ -112,131 +65,10 @@ function renderToggles(): void {
   }
 }
 
-let sunFollowClock = true;
-const sunStatusEl = document.querySelector("#sun-status") as HTMLElement | null;
-const sunProbesEl = document.querySelector("#sun-probes") as HTMLElement | null;
-
-function refreshSunProbes(): void {
-  if (!sunProbesEl || !card) {
-    return;
-  }
-  const probes = card.getSunProbes();
-  if (probes.length === 0) {
-    sunProbesEl.textContent = "(geen probes — Babylon + scene_glb vereist)";
-    return;
-  }
-  const lit = probes.filter((p) => p.receivesSun);
-  const ext = probes.filter((p) => p.side === "exterior");
-  const extLit = ext.filter((p) => p.receivesSun);
-  const lines = [
-    `lit ${lit.length}/${probes.length} (buitenblad ${extLit.length}/${ext.length})`,
-    ...probes.map((p) => {
-      const flag = p.receivesSun ? "YES" : p.facingSun ? "occ" : "no ";
-      const short = p.wallName.replace(/^Wall_\d+\s+/, "").slice(0, 28);
-      return `${flag} ${p.side[0]} ${short}  n·L=${p.ndotL.toFixed(2)}`;
-    }),
-  ];
-  sunProbesEl.textContent = lines.join("\n");
-}
-
-function refreshSunStatus(): void {
-  const st = mock.states["sun.sun"];
-  const az = Number(st?.attributes.azimuth ?? 0);
-  const el = Number(st?.attributes.elevation ?? 0);
-  if (sunStatusEl) {
-    const mode = timelapseTimer !== null
-      ? " (24h lap)"
-      : sunFollowClock
-        ? " (clock)"
-        : "";
-    const clock = timelapseClockLabel ? ` · ${timelapseClockLabel}` : "";
-    sunStatusEl.textContent = `${st?.state ?? "?"} · azimuth ${az.toFixed(0)}° · elevation ${el.toFixed(0)}°${clock}${mode}`;
-  }
-  if (sunClockEl && timelapseClockLabel) {
-    sunClockEl.textContent = timelapseClockLabel;
-  }
-  if (sunScrub && document.activeElement !== sunScrub) {
-    sunScrub.value = String(timelapseStep);
-  }
-  if (sunTimelapseBtn) {
-    const playing = timelapseTimer !== null;
-    sunTimelapseBtn.textContent = playing ? "Stop lap" : "24h lap";
-    sunTimelapseBtn.classList.toggle("on", playing);
-  }
-  // Card applies sun asynchronously via hass; probe readout one frame later.
-  window.requestAnimationFrame(() => refreshSunProbes());
-}
-
-function applySun(azimuth: number, elevation: number, followClock: boolean): void {
-  sunFollowClock = followClock;
-  mock.setSun(azimuth, elevation);
-  refreshSunStatus();
-}
-
-function applyClockSun(): void {
-  stopSunTimelapse();
-  timelapseClockLabel = "";
-  const pose = approximateSun(new Date());
-  applySun(pose.azimuth, pose.elevation, true);
-}
-
-function timelapseDateForStep(step: number): Date {
-  const minutes = ((step % TIMELAPSE_STEPS) * (24 * 60)) / TIMELAPSE_STEPS;
-  const h = Math.floor(minutes / 60);
-  const m = Math.floor(minutes % 60);
-  return new Date(
-    `${TIMELAPSE_DAY}T${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:00${TIMELAPSE_TZ}`,
-  );
-}
-
-function formatTimelapseClock(d: Date): string {
-  const hh = String(d.getHours()).padStart(2, "0");
-  const mm = String(d.getMinutes()).padStart(2, "0");
-  return `${TIMELAPSE_DAY} ${hh}:${mm}`;
-}
-
-function applyTimelapseStep(step: number, keepPlaying: boolean): void {
-  timelapseStep = ((step % TIMELAPSE_STEPS) + TIMELAPSE_STEPS) % TIMELAPSE_STEPS;
-  const d = timelapseDateForStep(timelapseStep);
-  timelapseClockLabel = formatTimelapseClock(d);
-  const pose = approximateSun(d);
-  applySun(pose.azimuth, pose.elevation, false);
-  if (!keepPlaying && timelapseTimer === null) {
-    refreshSunStatus();
-  }
-}
-
-function stopSunTimelapse(): void {
-  if (timelapseTimer !== null) {
-    window.clearInterval(timelapseTimer);
-    timelapseTimer = null;
-  }
-  if (sunTimelapseBtn) {
-    sunTimelapseBtn.textContent = "24h lap";
-    sunTimelapseBtn.classList.remove("on");
-  }
-}
-
-function startSunTimelapse(): void {
-  stopSunTimelapse();
-  // Fixtures off so window sun / ambient read clearly.
-  for (const id of entityIds) {
-    mock.setState(id, false);
-  }
-  applyTimelapseStep(timelapseStep, true);
-  timelapseTimer = window.setInterval(() => {
-    applyTimelapseStep(timelapseStep + 1, true);
-  }, TIMELAPSE_MS);
-  refreshSunStatus();
-}
-
-function toggleSunTimelapse(): void {
-  if (timelapseTimer !== null) {
-    stopSunTimelapse();
-    refreshSunStatus();
-    return;
-  }
-  startSunTimelapse();
+/** Quiet night sun so fixture / ambient fill work reads without sun debug UI. */
+function applyNightSun(): void {
+  const night = playgroundSunPresets().night;
+  mock.setSun(night.azimuth, night.elevation);
 }
 
 function refreshExport(): void {
@@ -301,10 +133,7 @@ function refreshPlaygroundStatus(live3d: Live3dDebugInfo | null = card?.getLive3
   }
 }
 
-let disposeCompass: (() => void) | null = null;
-
 function mountCard(): void {
-  disposeCompass?.();
   card?.remove();
   stageEl.replaceChildren();
   card = new SunflowFloorplanCard();
@@ -319,7 +148,6 @@ function mountCard(): void {
   card.setConfig(liveConfig);
   syncCardHass();
   stageEl.append(card);
-  disposeCompass = mountCompassOverlay(stageEl, { getCard: () => card });
   refreshExport();
   refreshPlaygroundStatus(null);
 }
@@ -417,43 +245,6 @@ document.querySelector("#btn-export")?.addEventListener("click", () => {
   downloadPlacements();
 });
 
-document.querySelector("#sun-dawn")?.addEventListener("click", () => {
-  stopSunTimelapse();
-  timelapseClockLabel = "";
-  applySun(SUN_PRESETS.dawn.azimuth, SUN_PRESETS.dawn.elevation, false);
-});
-document.querySelector("#sun-noon")?.addEventListener("click", () => {
-  stopSunTimelapse();
-  timelapseClockLabel = "";
-  applySun(SUN_PRESETS.noon.azimuth, SUN_PRESETS.noon.elevation, false);
-});
-document.querySelector("#sun-afternoon")?.addEventListener("click", () => {
-  stopSunTimelapse();
-  timelapseClockLabel = "";
-  applySun(SUN_PRESETS.afternoon.azimuth, SUN_PRESETS.afternoon.elevation, false);
-});
-document.querySelector("#sun-sunset")?.addEventListener("click", () => {
-  stopSunTimelapse();
-  timelapseClockLabel = "";
-  applySun(SUN_PRESETS.sunset.azimuth, SUN_PRESETS.sunset.elevation, false);
-});
-document.querySelector("#sun-night")?.addEventListener("click", () => {
-  stopSunTimelapse();
-  timelapseClockLabel = "";
-  applySun(SUN_PRESETS.night.azimuth, SUN_PRESETS.night.elevation, false);
-});
-document.querySelector("#sun-now")?.addEventListener("click", () => {
-  applyClockSun();
-});
-sunTimelapseBtn?.addEventListener("click", () => {
-  toggleSunTimelapse();
-});
-sunScrub?.addEventListener("input", () => {
-  stopSunTimelapse();
-  const step = Number(sunScrub.value);
-  applyTimelapseStep(Number.isFinite(step) ? step : 0, false);
-});
-
 ambientFillSlider?.addEventListener("input", () => {
   const scale = Number(ambientFillSlider.value);
   const clamped = Number.isFinite(scale) ? Math.max(0, Math.min(4, scale)) : 1;
@@ -462,12 +253,6 @@ ambientFillSlider?.addEventListener("input", () => {
   }
   card?.setAmbientFillScale(clamped);
 });
-
-window.setInterval(() => {
-  if (sunFollowClock) {
-    applyClockSun();
-  }
-}, 30000);
 
 window.addEventListener("error", (ev) => {
   setStatus(`window error: ${ev.message}`, true);
@@ -478,15 +263,12 @@ window.addEventListener("unhandledrejection", (ev) => {
 
 if (import.meta.hot) {
   import.meta.hot.dispose(() => {
-    stopSunTimelapse();
-    disposeCompass?.();
     card?.remove();
     card = null;
   });
 }
 
+applyNightSun();
 mountCard();
 renderToggles();
-wireSunPresetButtons();
-applyClockSun();
 void probeAssets();
