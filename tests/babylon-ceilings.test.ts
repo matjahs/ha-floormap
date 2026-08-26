@@ -52,4 +52,24 @@ describe("Babylon shadow-only ceilings", () => {
 
     engine.dispose();
   });
+
+  it("applies shadow-only material and layerMask to cloned descendants", () => {
+    const engine = new NullEngine();
+    const scene = new Scene(engine);
+    scene.activeCamera = new FreeCamera("c", new Vector3(0, 0, 0), scene);
+    const parent = MeshBuilder.CreateBox("sfCeiling_multi", { size: 1 }, scene);
+    const child = MeshBuilder.CreateBox("sfCeiling_multi_primitive0", { size: 0.5 }, scene);
+    child.parent = parent;
+
+    const caster = prepareShadowOnlyCeiling(parent);
+    const casterChildren = caster.getChildMeshes();
+    expect(casterChildren.length).toBeGreaterThanOrEqual(1);
+    for (const node of [caster, ...casterChildren]) {
+      expect(node.layerMask).toBe(LIVE3D_CEILING_LAYER);
+      expect(node.material?.disableColorWrite).toBe(true);
+      expect(node.receiveShadows).toBe(false);
+    }
+
+    engine.dispose();
+  });
 });

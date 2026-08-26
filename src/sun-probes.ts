@@ -114,14 +114,9 @@ export function probeStationsAlongLength(
   return out;
 }
 
-/** Quantize world cm for spatial dedupe of nearby fragment probes. */
-export function probeSpatialKey(
-  side: SunProbeSide,
-  x: number,
-  z: number,
-  cellCm = 80,
-): string {
+/** Quantize world cm for spatial dedupe of nearby fragment probes (side-agnostic). */
+export function probeSpatialKey(x: number, z: number, cellCm = 80): string {
   const qx = Math.round(x / cellCm);
   const qz = Math.round(z / cellCm);
-  return `${side}:${qx}:${qz}`;
+  return `${qx}:${qz}`;
 }

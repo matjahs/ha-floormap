@@ -22,17 +22,17 @@
 | 5   | `sun-horizon.ts` was inert; `elevation_m` did nothing      | Medium   | ✅ Fixed in working tree                                     |
 | 6   | Debug sun-probe markers render in production               | Medium   | ✅ Fixed (gated on `opts.inspector`)                         |
 | 7   | `sunHorizontalFacade` "south" test inverted at `north = 0` | Medium   | ✅ Fixed (dot vs geographic south)                           |
-| 8   | Shadow map ~2.25× coarser than needed                      | Medium   | **Open**                                                     |
+| 8   | Shadow map ~2.25× coarser than needed                      | Medium   | ✅ Fixed (`diag3 * 1.3`)                                     |
 | 9   | `classifyExteriorWallName` matches "ext" as a substring    | Medium   | ✅ Fixed (word-boundary / en-dash only)                      |
-| 10  | Dead twilight sky-fill in both renderers                   | Low      | **Open**                                                     |
-| 11  | Dead dedupe branch in probe collection                     | Low      | **Open**                                                     |
-| 12  | Probe raycasting runs on every HA state update             | Low      | **Open**                                                     |
-| 13  | `rayOccludedTowardSun` mutates its argument                | Low      | **Open**                                                     |
+| 10  | Dead twilight sky-fill in both renderers                   | Low      | ✅ Fixed (removed unreachable skyFill)                       |
+| 11  | Dead dedupe branch in probe collection                     | Low      | ✅ Fixed (side-agnostic `probeSpatialKey`)                   |
+| 12  | Probe raycasting runs on every HA state update             | Low      | ✅ Fixed (cache on quantized sun direction)                  |
+| 13  | `rayOccludedTowardSun` mutates its argument                | Low      | ✅ Fixed (`normalizeToNew`)                                  |
 | 14  | `waalbandijkFloorSunContext` lies about its return type    | Low      | ✅ Fixed (throw + per-floor elevation)                       |
 | 15  | `solar.ts` location JSDoc contradicts the coordinates      | Low      | ✅ Fixed (Nijmegen JSDoc)                                    |
-| 16  | Ceiling shadow-clone only reparents the root               | Latent   | **Open**                                                     |
+| 16  | Ceiling shadow-clone only reparents the root               | Latent   | ✅ Fixed (apply mat/layerMask to descendants)                |
 
-Suggested order for what remains: **#8** (frustum re-tune), then low-priority cleanup (#10-#13, #16).
+Suggested order for what remains: none — review fallout closed.
 
 ---
 
@@ -212,133 +212,47 @@ consistently from a normalized `idleTowardSun`.
 
 ### 8. Shadow map is ~2.25× coarser than it needs to be
 
-`src/renderer/live3d/babylon-scene.ts:270` · **Open**
+`src/renderer/live3d/babylon-scene.ts` · **✅ Fixed**
 
-```ts
-const shadowFrustumSize = Math.max(shadowSpan * 2.5, diag3 * 2.5);
-```
-
-| quantity                                                         | value                               |
-| ---------------------------------------------------------------- | ----------------------------------- |
-| configured frustum                                               | 5627 cm → **2.75 cm/texel** at 2048 |
-| worst-case light-space footprint (`horizontalDiagonal + height`) | 2502 cm → **1.22 cm/texel**         |
-
-The 2.5× factor costs ~5× the texel density in area. The comment attributes the oversize to
-walls popping out of the box during a day lap, but the required size is
-**azimuth-independent** — the horizontal diagonal already bounds every rotation. The popping
-most likely came from the depth range or `autoUpdateExtends`, both of which are now pinned
-(and re-asserted per-frame at lines 400/420). Worth re-testing at ~1.3×.
-
-Note `babylon-scene.ts:168` sets `planDiagonal * 3` as an initial value that is then
-overwritten at line 271 — dead assignment.
+Frustum is now `diag3 * 1.3` (was `max(span, diag3) * 2.5`). Dead pre-load
+`planDiagonal * 3` assignment removed.
 
 ### 6. Debug sun-probe markers render in production
 
-`src/renderer/live3d/babylon-scene.ts:318` · **Open**
-
-```ts
-const sunProbeMarkers = createSunProbeMarkers(scene, sunProbeSamples);
-```
-
-Unconditional. `createSunProbeMarkers` builds an emissive green/red sphere
-(`MARKER_DIAMETER_CM = 18`) per probe sample with the default layerMask, so any user on
-`render.engine: babylon` with a scene GLB sees dozens of coloured balls stuck to their
-exterior walls. The neighbouring inspector overlay *is* gated on `opts.inspector`
-(`babylon-scene.ts:468`); these are not.
-
-Combined with #9, an asset whose interior walls contain the letters "ext" gets markers on
-those too.
+`src/renderer/live3d/babylon-scene.ts` · **✅ Fixed** (gated on `opts.inspector`)
 
 ### 10. Dead twilight sky-fill in both renderers
 
-`src/renderer/live3d/babylon-scene.ts:434` and `src/renderer/live3d/scene-three.ts:195` · **Open**
-
-```ts
-const skyFill = !sunOn && elev != null && elev > 8 ? Math.min(0.16, ((elev - 8) / 40) * 0.16) : 0;
-```
-
-`sunOn` is `enabled && sunIntensity > 0.04`, and `shadeSun` returns a minimum of **0.16**
-for any `elevation > 0` (measured across the full range in 0.05° steps). So `sunOn` is false
-only when elevation ≤ 0, making `!sunOn && elev > 8` unreachable. `skyFill` is always `0` in
-both backends.
+Babylon + Three · **✅ Fixed** — removed unreachable `skyFill` (`!sunOn && elev > 8`).
 
 ### 11. Dead dedupe branch in probe collection
 
-`src/renderer/live3d/babylon-sun-probes.ts:281` · **Open**
-
-```ts
-if (sample.side === "exterior" && prev.side === "interior") {
-```
-
-`probeSpatialKey(side, x, z)` embeds `side` in the key (`src/sun-probes.ts`), so entries
-sharing a key always share a side and `prev.side` can never differ. The documented
-"prefer exterior over interior in the same facade cell" preference never applies — interior
-and exterior probes land in separate buckets and both survive. Drop `side` from the key, or
-drop the branch.
+`probeSpatialKey` · **✅ Fixed** — side dropped from the key so exterior wins over interior
+in the same facade cell.
 
 ### 9. `classifyExteriorWallName` matches "ext" as a substring
 
-`src/sun-probes.ts:44` · **Open**
-
-After the `\bext\b` / en-dash checks fall through:
-
-```ts
-if (n.includes("ext")) { return { isExteriorWall: true, preferredSide: null }; }
-```
-
-Gated only by `/wall/i` on the name, so `"Wall_12 Texture"`, `"Wall next to stairs"` and
-`"Wall extra"` all classify as exterior walls and get probes — and, per #6, visible markers.
-Tighten to the word-boundary/en-dash forms already handled above.
+`src/sun-probes.ts` · **✅ Fixed** (word-boundary / en-dash only)
 
 ### 12. Probe raycasting runs on every HA state update
 
-`babylon-sun-probes.ts:363-378` → `babylon-scene.ts:463-466` → `card.ts:770-771` · **Open**
-
-`readSunProbes` does a CPU `scene.pickWithRay` — up to 8 hops each — per interior probe.
-It is called from `applySun`, which runs from `_syncSun` → `_syncHassState` on every `hass`
-setter fire. In a busy Home Assistant instance that is many times per second, for a debug
-overlay whose result only changes when the sun moves. Gating on a sun-direction delta would
-cost nothing.
+`babylon-scene.ts` · **✅ Fixed** — `resolveSunProbes` caches on quantized sun direction.
 
 ### 13. `rayOccludedTowardSun` mutates its argument
 
-`src/renderer/live3d/babylon-sun-probes.ts:317` · **Open**
-
-```ts
-const dir = towardSun.normalize();
-```
-
-Babylon's `Vector3.normalize()` normalises **in place**, so this exported function rewrites
-the caller's vector. Harmless at the current call site (already-normalised, reused vector),
-but the signature invites a surprise. Use `.normalizeToNew()` or clone first.
+`babylon-sun-probes.ts` · **✅ Fixed** — uses `normalizeToNew()`.
 
 ### 16. Ceiling shadow-clone only reparents the root
 
-`src/renderer/live3d/babylon-ceilings.ts:74` · **Latent**
-
-```ts
-const shadowMesh = mesh.clone(`${mesh.name}${SHADOW_CASTER_SUFFIX}`, mesh.parent);
-```
-
-`clone` copies descendants, but the invisible material and `LIVE3D_CEILING_LAYER` layerMask
-are applied to the clone **root only**. The Babylon glTF loader splits multi-material meshes
-into `_primitive0`/`_primitive1` children (606 such meshes exist in `appartement.glb`), so a
-multi-material ceiling would produce cloned children that keep their original visible
-materials and the default layerMask — re-rendering the "hidden" ceiling over the dollhouse.
-
-Latent only because the bundled asset's single `sfCeiling_ceiling` has no children. Walk the
-clone's descendants when applying the material and layerMask.
+`babylon-ceilings.ts` · **✅ Fixed** — material + `LIVE3D_CEILING_LAYER` applied to clone
+descendants (`_primitive*` children).
 
 ---
 
 ## Minor
 
-- `babylon-scene.ts:433` — `const elev = shading.sourceElevation` shadows the outer `elev`
-  (level elevation) inside `applySun`.
-- `babylon-scene.ts:118` — `ShadowGenerator.ForceGLSL = true` is a static global set only on
+- `babylon-scene.ts` — `ShadowGenerator.ForceGLSL = true` is a static global set only on
   the WebGPU path; it persists across engine swaps within a page.
-- `babylon-scene.ts:168` — `shadowFrustumSize = planDiagonal * 3` is overwritten at line 271
-  before any use.
 
 ---
 
