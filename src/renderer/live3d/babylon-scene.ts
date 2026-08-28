@@ -363,6 +363,7 @@ export async function createBabylonLive3dRenderer(
       levelElevation: elev,
       aspect,
       bounds: meshBounds ?? undefined,
+      homeView: opts.homeView,
     });
     const look = new Vector3(frame.target.x, frame.target.y, frame.target.z);
     camera.setTarget(look);
@@ -602,6 +603,37 @@ export async function createBabylonLive3dRenderer(
         camera.detachControl();
         frameDollhouse();
       }
+    },
+    resetHomeView() {
+      frameDollhouse();
+    },
+    projectPlanToScreenPercent(planPos) {
+      const world = planToRender(planPos);
+      const engineW = Math.max(1, engine.getRenderWidth());
+      const engineH = Math.max(1, engine.getRenderHeight());
+      const projected = Vector3.Project(
+        world,
+        Matrix.Identity(),
+        scene.getTransformMatrix(),
+        camera.viewport.toGlobal(engineW, engineH),
+      );
+      const behind = projected.z < 0 || projected.z > 1;
+      if (behind) {
+        return { left: 0, top: 0, behind: true };
+      }
+      return {
+        left: (projected.x / engineW) * 100,
+        top: (projected.y / engineH) * 100,
+      };
+    },
+    getHomeView() {
+      const eye = camera.position;
+      const target = camera.getTarget();
+      return {
+        eye: [eye.x, eye.y, eye.z],
+        target: [target.x, target.y, target.z],
+        fovDeg: (camera.fov * 180) / Math.PI,
+      };
     },
     setHandlesVisible(_visible) {
       // Edit handles not implemented in Babylon spike yet.

@@ -4,6 +4,7 @@ import type {
   SunflowFloorplanCardConfig,
   Vec2,
 } from "./types";
+import type { FloorplanIR } from "./import/ir";
 import { effectiveEntityGroup, normalizeRoomId } from "./ha-room";
 
 export interface GroupTapHotspot {
@@ -30,12 +31,22 @@ export function findGroupConfig(
   return undefined;
 }
 
-/** Union of explicit `groups` keys, YAML membership, and HA room tags. */
+/** Union of Blender floor rooms, explicit `groups` keys, YAML membership, and HA room tags. */
 export function discoverGroupIds(
   cfg: SunflowFloorplanCardConfig,
   hass?: HomeAssistant,
+  ir?: FloorplanIR | null,
 ): string[] {
   const ids = new Set<string>();
+  if (ir?.rooms?.length) {
+    for (const room of ir.rooms) {
+      const n = normalizeRoomId(room.id);
+      if (n) {
+        ids.add(n);
+      }
+    }
+    return [...ids].sort();
+  }
   for (const id of Object.keys(cfg.groups ?? {})) {
     const n = normalizeRoomId(id);
     if (n) {
@@ -55,9 +66,30 @@ export function memberEntitiesForGroup(
   cfg: SunflowFloorplanCardConfig,
   groupId: string,
   hass?: HomeAssistant,
+  ir?: FloorplanIR | null,
 ): string[] {
   const want = normalizeRoomId(groupId);
   const out: string[] = [];
+  if (ir?.rooms?.length) {
+    for (const fx of ir.fixtures) {
+      if (normalizeRoomId(fx.roomId ?? "") !== want) {
+        continue;
+      }
+      const ent = cfg.entities?.[fx.id];
+      if (!ent?.entity) {
+        continue;
+      }
+      out.push(ent.entity);
+      for (const seg of ent.segments ?? []) {
+        out.push(seg.entity);
+      }
+    }
+    const master = findGroupConfig(cfg, want)?.entity;
+    if (master && !out.includes(master)) {
+      out.unshift(master);
+    }
+    return out;
+  }
   for (const ent of Object.values(cfg.entities ?? {})) {
     if (effectiveEntityGroup(ent.group, hass, ent.entity) === want) {
       out.push(ent.entity);

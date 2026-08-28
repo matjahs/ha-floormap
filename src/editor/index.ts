@@ -1,5 +1,5 @@
 import { LitElement, css, html, nothing } from "lit";
-import { customElement, property, state } from "lit/decorators.js";
+import { property, state } from "lit/decorators.js";
 import type { HomeAssistant, LovelaceCardEditor } from "custom-card-helpers";
 import { fireEvent } from "custom-card-helpers";
 import type { SunflowFloorplanCardConfig } from "../types";
@@ -14,7 +14,8 @@ import { projectToPercent, selectCamera } from "../projection";
 
 type Tab = "import" | "mapping" | "tuning" | "yaml";
 
-@customElement("sunflow-floorplan-card-editor")
+const EDITOR_TYPE = "sunflow-floorplan-card-editor";
+
 export class SunflowFloorplanCardEditor extends LitElement implements LovelaceCardEditor {
   @property({ attribute: false }) public hass!: HomeAssistant;
   @state() private _config: SunflowFloorplanCardConfig = stubConfig();
@@ -492,6 +493,14 @@ export class SunflowFloorplanCardEditor extends LitElement implements LovelaceCa
       flex-wrap: wrap;
     }
   `;
+}
+
+if (!customElements.get(EDITOR_TYPE)) {
+  try {
+    customElements.define(EDITOR_TYPE, SunflowFloorplanCardEditor);
+  } catch {
+    // ignore duplicate registration
+  }
 }
 
 declare global {

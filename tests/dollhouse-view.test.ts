@@ -14,4 +14,19 @@ describe("computeDollhouseFrame", () => {
     expect(Math.abs(frame.target.x - 746)).toBeLessThan(10);
     expect(Math.abs(frame.target.z - 653)).toBeLessThan(10);
   });
+
+  it("honours an exact home_view override", () => {
+    const ir = importBlenderScene(sceneJson);
+    const frame = computeDollhouseFrame(ir, {
+      aspect: 16 / 9,
+      homeView: {
+        eye: { x: -100, y: 800, z: 200 },
+        target: { x: 400, y: 40, z: 300 },
+        fovDeg: 42,
+      },
+    });
+    expect(frame.eye).toEqual({ x: -100, y: 800, z: 200 });
+    expect(frame.target).toEqual({ x: 400, y: 40, z: 300 });
+    expect(frame.fovDeg).toBe(42);
+  });
 });

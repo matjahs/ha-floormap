@@ -1,5 +1,5 @@
 import { LitElement, css, html, svg, nothing } from "lit";
-import { customElement, property, state } from "lit/decorators.js";
+import { property, state } from "lit/decorators.js";
 import type { HomeAssistant, LovelaceCard } from "custom-card-helpers";
 import { fireEvent } from "custom-card-helpers";
 import type {
@@ -51,13 +51,19 @@ import { BakedCompositor } from "./renderer/baked/compositor";
 import { renderCssFallback } from "./renderer/baked/css-fallback";
 import { LightStateAnimator, entityToLightParams, mergeOverride } from "./renderer/shared/state";
 import { dispatchMarkerAction, isDefaultToggleAction } from "./renderer/shared/markers";
-import { buildRoomHotspots, hitTestRoom, type RoomHotspot } from "./renderer/shared/rooms";
+import {
+  buildRoomHotspots,
+  buildRoomHotspotsLive3d,
+  hitTestRoom,
+  roomDisplayName,
+  type RoomHotspot,
+} from "./renderer/shared/rooms";
 import type { Live3dHandle, Live3dDebugInfo } from "./renderer/live3d/scene";
 import { resolvePlanNorthDeg, resolveCardFloorSun, sunShadingFromHass } from "./sun";
 
 export const CARD_TYPE = "sunflow-floorplan-card";
 
-@customElement(CARD_TYPE)
+/** Register once — HA can load the module via resources and cache/reload races. */
 export class SunflowFloorplanCard extends LitElement implements LovelaceCard {
   @property({ attribute: false }) public hass!: HomeAssistant;
 
@@ -95,6 +101,17 @@ export class SunflowFloorplanCard extends LitElement implements LovelaceCard {
   /** Last-click tracking for crude double-tap detection */
   private _lastTapAt = 0;
   private _lastTapFixture = "";
+  /** Marker press tracking for touch tap / long-press */
+  private _markerPress: {
+    key: string;
+    fixtureId: string;
+    segmentIndex?: number;
+    x: number;
+    y: number;
+    startedAt: number;
+    holdTimer: number;
+    held: boolean;
+  } | null = null;
   private _dragFixture: string | null = null;
   private _dragMoved = false;
   private _boundPointerDown = (ev: PointerEvent) => this._onPointerDown(ev);
@@ -597,6 +614,7 @@ export class SunflowFloorplanCard extends LitElement implements LovelaceCard {
       gpu: this._config?.render?.gpu ?? "webgpu",
       engine: this._config?.render?.engine ?? "three",
       lockCamera: this._config?.render?.lock_camera !== false,
+      homeView: this._homeViewFromConfig(),
       inspector: this._config?.render?.inspector === true,
     });
     this._ensureCanvasMounted();
@@ -671,13 +689,49 @@ export class SunflowFloorplanCard extends LitElement implements LovelaceCard {
     return (this._config.render?.mode ?? "live3d") === "live3d";
   }
 
+  private _homeViewFromConfig():
+    | {
+        eye: { x: number; y: number; z: number };
+        target: { x: number; y: number; z: number };
+        fovDeg?: number;
+      }
+    | undefined {
+    const hv = this._config.render?.home_view;
+    if (!hv?.eye || !hv?.target) {
+      return undefined;
+    }
+    return {
+      eye: { x: hv.eye[0], y: hv.eye[1], z: hv.eye[2] },
+      target: { x: hv.target[0], y: hv.target[1], z: hv.target[2] },
+      fovDeg: hv.fovDeg,
+    };
+  }
+
+  private _projectMarkerPos(pos: Vec3): { left: number; top: number } | null {
+    const live3d = this._isLive3d() && this._live3d && this._cameraLocked();
+    if (live3d) {
+      const pct = this._live3d!.projectPlanToScreenPercent(pos);
+      if (!pct || pct.behind) {
+        return null;
+      }
+      if (pct.left < -5 || pct.left > 105 || pct.top < -5 || pct.top > 105) {
+        return null;
+      }
+      return { left: pct.left, top: pct.top };
+    }
+    const cam = this._currentCamera();
+    if (!cam) {
+      return null;
+    }
+    const pct = projectToPercent(cam, pos, { aspect: this._aspect() });
+    return { left: pct.left, top: pct.top };
+  }
+
   private _rebuildMarkers(): void {
     const ir = this._ir;
-    const cam = this._currentCamera();
     const entities = this._config.entities ?? {};
     const overrides = this._config.overrides ?? {};
     const markers: MarkerState[] = [];
-    const aspect = this._aspect();
     const live3d = this._isLive3d();
 
     for (const [fixtureId, ent] of Object.entries(entities)) {
@@ -698,10 +752,12 @@ export class SunflowFloorplanCard extends LitElement implements LovelaceCard {
             left = o.marker[0];
             top = o.marker[1];
           }
-          if ((left === undefined || top === undefined) && cam) {
-            const pct = projectToPercent(cam, mid, { aspect });
-            left = pct.left;
-            top = pct.top;
+          if (left === undefined || top === undefined) {
+            const pct = this._projectMarkerPos(mid);
+            if (pct) {
+              left = pct.left;
+              top = pct.top;
+            }
           }
           if (left === undefined || top === undefined) {
             continue;
@@ -734,10 +790,12 @@ export class SunflowFloorplanCard extends LitElement implements LovelaceCard {
         left = o.marker[0];
         top = o.marker[1];
       }
-      if ((left === undefined || top === undefined) && cam && start) {
-        const pct = projectToPercent(cam, start, { aspect });
-        left = pct.left;
-        top = pct.top;
+      if ((left === undefined || top === undefined) && start) {
+        const pct = this._projectMarkerPos(start);
+        if (pct) {
+          left = pct.left;
+          top = pct.top;
+        }
       }
       if (left === undefined || top === undefined) {
         continue;
@@ -761,10 +819,35 @@ export class SunflowFloorplanCard extends LitElement implements LovelaceCard {
       });
     }
     this._markers = markers;
-    this._groupTapHotspots = buildGroupTapHotspots(this._config.groups);
+    this._groupTapHotspots = this._hasBlenderRooms()
+      ? []
+      : buildGroupTapHotspots(this._config.groups);
+    this._rebuildRoomHotspots();
+  }
 
-    if (ir && cam) {
-      this._hotspots = buildRoomHotspots(ir, cam, aspect, this._currentLevelId());
+  private _hasBlenderRooms(): boolean {
+    return (this._ir?.rooms?.length ?? 0) > 0;
+  }
+
+  private _rebuildRoomHotspots(): void {
+    const ir = this._ir;
+    if (!ir?.rooms?.length) {
+      this._hotspots = [];
+      return;
+    }
+    const levelId = this._currentLevelId();
+    const live3d = this._isLive3d() && this._live3d && this._cameraLocked();
+    if (live3d) {
+      this._hotspots = buildRoomHotspotsLive3d(ir, (planPos) => {
+        return this._live3d!.projectPlanToScreenPercent(planPos);
+      }, levelId);
+      return;
+    }
+    const cam = this._currentCamera();
+    if (cam) {
+      this._hotspots = buildRoomHotspots(ir, cam, this._aspect(), levelId);
+    } else {
+      this._hotspots = [];
     }
   }
 
@@ -929,10 +1012,52 @@ export class SunflowFloorplanCard extends LitElement implements LovelaceCard {
     dispatchMarkerAction(this, this.hass, actionConfig, action);
   }
 
-  private _onMarkerPointer(ev: Event, m: MarkerState): void {
+  private _onMarkerPointerDown(ev: PointerEvent, m: MarkerState): void {
+    if (ev.button !== undefined && ev.button !== 0) {
+      return;
+    }
     ev.stopPropagation();
-    const now = Date.now();
     const key = `${m.fixtureId}:${m.segmentIndex ?? -1}`;
+    this._clearMarkerPress();
+    const holdTimer = window.setTimeout(() => {
+      if (!this._markerPress || this._markerPress.key !== key) {
+        return;
+      }
+      this._markerPress.held = true;
+      this._onMarkerAction("hold", m.fixtureId, m.segmentIndex);
+    }, 500);
+    this._markerPress = {
+      key,
+      fixtureId: m.fixtureId,
+      segmentIndex: m.segmentIndex,
+      x: ev.clientX,
+      y: ev.clientY,
+      startedAt: Date.now(),
+      holdTimer,
+      held: false,
+    };
+    try {
+      (ev.currentTarget as HTMLElement).setPointerCapture(ev.pointerId);
+    } catch {
+      // ignore
+    }
+  }
+
+  private _onMarkerPointerUp(ev: PointerEvent, m: MarkerState): void {
+    ev.stopPropagation();
+    const press = this._markerPress;
+    const key = `${m.fixtureId}:${m.segmentIndex ?? -1}`;
+    if (!press || press.key !== key) {
+      return;
+    }
+    const moved =
+      Math.hypot(ev.clientX - press.x, ev.clientY - press.y) > 12;
+    const held = press.held;
+    this._clearMarkerPress();
+    if (held || moved) {
+      return;
+    }
+    const now = Date.now();
     if (now - this._lastTapAt < 350 && this._lastTapFixture === key) {
       this._lastTapAt = 0;
       this._onMarkerAction("double_tap", m.fixtureId, m.segmentIndex);
@@ -943,10 +1068,20 @@ export class SunflowFloorplanCard extends LitElement implements LovelaceCard {
     this._onMarkerAction("tap", m.fixtureId, m.segmentIndex);
   }
 
-  private _onMarkerHold(ev: Event, m: MarkerState): void {
+  private _onMarkerPointerCancel(): void {
+    this._clearMarkerPress();
+  }
+
+  private _clearMarkerPress(): void {
+    if (this._markerPress?.holdTimer) {
+      window.clearTimeout(this._markerPress.holdTimer);
+    }
+    this._markerPress = null;
+  }
+
+  private _onMarkerContextMenu(ev: Event): void {
     ev.preventDefault();
     ev.stopPropagation();
-    this._onMarkerAction("hold", m.fixtureId, m.segmentIndex);
   }
 
   private _stagePointerPercent(
@@ -1150,7 +1285,7 @@ export class SunflowFloorplanCard extends LitElement implements LovelaceCard {
     const hit = hitTestRoom(this._hotspots, u, v);
     if (hit && this.hass) {
       const roomId = hit.room.id;
-      const byGroup = memberEntitiesForGroup(this._config, roomId, this.hass);
+      const byGroup = memberEntitiesForGroup(this._config, roomId, this.hass, this._ir);
       if (byGroup.length > 0) {
         this._activateGroup(roomId, "tap");
         return;
@@ -1497,7 +1632,7 @@ export class SunflowFloorplanCard extends LitElement implements LovelaceCard {
       }, action);
       return;
     }
-    const members = memberEntitiesForGroup(this._config, groupId, this.hass);
+    const members = memberEntitiesForGroup(this._config, groupId, this.hass, this._ir);
     if (members.length === 0) {
       return;
     }
@@ -1552,9 +1687,32 @@ export class SunflowFloorplanCard extends LitElement implements LovelaceCard {
       },
     };
     this._syncCameraInteraction();
+    if (locked) {
+      this._live3d?.resetHomeView();
+    }
+    this._rebuildMarkers();
     this._live3d?.render();
     fireEvent(this, "config-changed", { config: this._config });
     this.requestUpdate();
+  }
+
+  private async _copyHomeView(): Promise<void> {
+    if (!this._live3d) {
+      return;
+    }
+    const view = this._live3d.getHomeView();
+    const yaml = [
+      "home_view:",
+      `  eye: [${view.eye.map((n) => Number(n.toFixed(1))).join(", ")}]`,
+      `  target: [${view.target.map((n) => Number(n.toFixed(1))).join(", ")}]`,
+      `  fovDeg: ${Number(view.fovDeg.toFixed(2))}`,
+    ].join("\n");
+    try {
+      await navigator.clipboard.writeText(yaml);
+    } catch {
+      // ignore clipboard failures
+    }
+    console.info("[sunflow] home_view\n%s", yaml);
   }
 
   private _syncEditInteraction(): void {
@@ -1689,10 +1847,11 @@ export class SunflowFloorplanCard extends LitElement implements LovelaceCard {
     const showBadge = this._config.show_warning_badge !== false && this._missing.length > 0;
     const params = this._animator.getAll();
     const mode = this._config.render?.mode ?? "live3d";
-    const groupIds = discoverGroupIds(this._config, this.hass);
+    const groupIds = discoverGroupIds(this._config, this.hass, this._ir);
+    const hasBlenderRooms = this._hasBlenderRooms();
     const canEdit =
       !!this._config.edit_mode && mode === "live3d" && !this._live3dFallback;
-    const canDrawTap = !!this._config.edit_mode && groupIds.length > 0;
+    const canDrawTap = !!this._config.edit_mode && groupIds.length > 0 && !hasBlenderRooms;
     const canFreeCam = mode === "live3d" && !this._live3dFallback;
 
     return html`
@@ -1739,7 +1898,7 @@ export class SunflowFloorplanCard extends LitElement implements LovelaceCard {
                     style="--sf-group-hue:${hue}"
                     title=${this._drawingTap
                       ? `Draw tap area for ${gid}`
-                      : `Toggle group ${gid}`}
+                      : `Toggle ${roomDisplayName(this._ir, gid)}`}
                     @click=${(ev: Event) => this._onGroupChipClick(gid, ev)}
                     @contextmenu=${(ev: Event) => {
                       if (this._drawingTap) {
@@ -1750,7 +1909,7 @@ export class SunflowFloorplanCard extends LitElement implements LovelaceCard {
                       this._activateGroup(gid, "hold");
                     }}
                   >
-                    ${gid}
+                    ${roomDisplayName(this._ir, gid)}
                   </button>
                 `;
               })}
@@ -1836,7 +1995,7 @@ export class SunflowFloorplanCard extends LitElement implements LovelaceCard {
             )
           : this._canvasHostEl}
         ${this._tapAreaOverlay()}
-        ${!this._editing && !this._drawingTap
+        ${!this._editing && !this._drawingTap && this._cameraLocked()
           ? html`
               <div class="sf-markers">
                 ${this._markers.map((m) => {
@@ -1852,8 +2011,11 @@ export class SunflowFloorplanCard extends LitElement implements LovelaceCard {
                         ? `--sf-group-hue:${hue}`
                         : ""}"
                       title=${m.friendlyName ?? m.entity}
-                      @click=${(ev: Event) => this._onMarkerPointer(ev, m)}
-                      @contextmenu=${(ev: Event) => this._onMarkerHold(ev, m)}
+                      aria-label=${m.friendlyName ?? m.entity}
+                      @pointerdown=${(ev: PointerEvent) => this._onMarkerPointerDown(ev, m)}
+                      @pointerup=${(ev: PointerEvent) => this._onMarkerPointerUp(ev, m)}
+                      @pointercancel=${() => this._onMarkerPointerCancel()}
+                      @contextmenu=${(ev: Event) => this._onMarkerContextMenu(ev)}
                     >
                       <span class="sf-dot" style="opacity:${m.params.on ? 1 : 0.35}"></span>
                       ${m.params.on
@@ -1866,7 +2028,9 @@ export class SunflowFloorplanCard extends LitElement implements LovelaceCard {
                 })}
               </div>
             `
-          : nothing}
+          : !this._editing && !this._drawingTap && !this._cameraLocked()
+            ? html`<div class="sf-cam-hint">Lock camera to control lights</div>`
+            : nothing}
       </div>
       <div class="sf-controls">
         <button @click=${this._allOff}>All off</button>
@@ -1877,6 +2041,9 @@ export class SunflowFloorplanCard extends LitElement implements LovelaceCard {
             >
               ${this._cameraLocked() ? "Free camera" : "Lock camera"}
             </button>`
+          : nothing}
+        ${canFreeCam && !this._cameraLocked()
+          ? html`<button @click=${() => void this._copyHomeView()}>Copy home view</button>`
           : nothing}
         ${canEdit
           ? html`<button class=${this._editing ? "active" : ""} @click=${this._toggleEditing}>
@@ -2172,12 +2339,25 @@ export class SunflowFloorplanCard extends LitElement implements LovelaceCard {
       pointer-events: none;
       z-index: 4;
     }
+    .sf-cam-hint {
+      position: absolute;
+      left: 50%;
+      bottom: 0.75rem;
+      transform: translateX(-50%);
+      z-index: 4;
+      padding: 0.35rem 0.75rem;
+      border-radius: 8px;
+      background: rgba(0, 0, 0, 0.55);
+      color: #fff;
+      font-size: 0.8rem;
+      pointer-events: none;
+    }
     .sf-marker {
       pointer-events: auto;
       position: absolute;
       transform: translate(-50%, -50%);
-      min-width: 44px;
-      min-height: 44px;
+      min-width: 48px;
+      min-height: 48px;
       border: none;
       border-radius: 999px;
       background: rgba(0, 0, 0, 0.45);
@@ -2188,6 +2368,9 @@ export class SunflowFloorplanCard extends LitElement implements LovelaceCard {
       justify-content: center;
       cursor: pointer;
       padding: 4px;
+      touch-action: manipulation;
+      -webkit-user-select: none;
+      user-select: none;
     }
     .sf-marker-warn {
       outline: 2px solid var(--error-color, #db4437);
@@ -2231,6 +2414,15 @@ export class SunflowFloorplanCard extends LitElement implements LovelaceCard {
       position: relative;
     }
   `;
+}
+
+if (!customElements.get(CARD_TYPE)) {
+  try {
+    customElements.define(CARD_TYPE, SunflowFloorplanCard);
+  } catch {
+    // Lovelace ?v= cache-bust vs chunk import of ../sunflow-floorplan-card.js
+    // are different module URLs; both may race past get() before define().
+  }
 }
 
 window.customCards = window.customCards || [];

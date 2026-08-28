@@ -1,11 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { resolve, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   importBlenderScene,
   isBlenderSceneFile,
   mergeEntitiesFromBlenderFixtures,
 } from "../src/import/blender";
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
 
 const fixturePath = resolve(
   __dirname,
@@ -50,7 +53,8 @@ describe("importBlenderScene", () => {
       Array.from({ length: 18 }, (_, i) => `L${String(i + 1).padStart(2, "0")}`),
     );
     expect(ir.fixtures[0]?.entityId).toBe("light.livingroom_light_3");
-    expect(ir.fixtures[1]?.entityId).toBeUndefined();
+    expect(ir.fixtures[1]?.entityId).toBe("light.ceiling_2");
+    expect(ir.fixtures[2]?.entityId).toBe("light.ceiling_1");
     expect(ir.fixtures[3]?.entityId).toBe("light.livingroom_light_1");
     expect(ir.cameras[0]?.id).toBe("DollhouseCam");
   });

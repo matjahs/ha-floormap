@@ -16,6 +16,12 @@ export interface DollhouseBounds {
   maxY: number;
 }
 
+export interface HomeViewSpec {
+  eye: { x: number; y: number; z: number };
+  target: { x: number; y: number; z: number };
+  fovDeg?: number;
+}
+
 /** Fit the plan to the canvas; keep Blender DollhouseCam look direction, not its 35 m eye height. */
 export function computeDollhouseFrame(
   ir: FloorplanIR,
@@ -23,8 +29,26 @@ export function computeDollhouseFrame(
     levelElevation?: number;
     aspect: number;
     bounds?: DollhouseBounds;
+    /** Exact locked framing (plan/render cm: x, elev y, z). */
+    homeView?: HomeViewSpec;
   },
 ): DollhouseFrame {
+  const elev = opts.levelElevation ?? 0;
+  if (opts.homeView) {
+    const eye = opts.homeView.eye;
+    const target = opts.homeView.target;
+    const distance = Math.hypot(eye.x - target.x, eye.y - target.y, eye.z - target.z);
+    const fovDeg = opts.homeView.fovDeg ?? ir.environment.dollhouseView?.fovDeg ?? 42;
+    return {
+      eye: { ...eye },
+      target: { ...target },
+      fovDeg,
+      near: Math.max(10, distance / 80),
+      far: Math.max(200000, distance * 20),
+      distance: Math.max(distance, 400),
+    };
+  }
+
   const minX = opts.bounds?.minX ?? ir.bounds.min.x;
   const maxX = opts.bounds?.maxX ?? ir.bounds.max.x;
   const minY = opts.bounds?.minY ?? ir.bounds.min.y;
@@ -48,9 +72,9 @@ export function computeDollhouseFrame(
     spanX / 2 / Math.tan(hFov / 2),
     spanY / 2 / Math.tan(fovRad / 2),
   );
-  const elev = opts.levelElevation ?? 0;
   const distance = Math.max(fitDist * 0.9, 400);
-  const polar = 0.26;
+  // ~41° from vertical — elevated 3/4 dollhouse (tablet home framing).
+  const polar = 0.72;
   const baseX = view?.eye.x ?? bird?.x ?? floorCam?.x ?? cx;
   const baseY = view?.eye.z ?? bird?.y ?? floorCam?.y ?? cz;
   const toCx = cx - baseX;

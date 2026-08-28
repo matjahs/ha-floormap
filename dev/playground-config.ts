@@ -72,11 +72,10 @@ export const playgroundConfig: SunflowFloorplanCardConfig = {
     },
   },
   // Entity ids match Blender Object custom property `device_id` (re-exported in scene.json).
-  // L02/L03 still use placeholders until Blender device_id is set (currently default_id).
   entities: {
     L01: { entity: "light.livingroom_light_3", group: "living" },
-    L02: { entity: "light.kajplats_e14_ws_globe_806lm", group: "living" },
-    L03: { entity: "light.kajplats_e14_ws_globe_806lm_3", group: "living" },
+    L02: { entity: "light.ceiling_2", group: "living" },
+    L03: { entity: "light.ceiling_1", group: "living" },
     L04: { entity: "light.livingroom_light_1", group: "living" },
     L05: { entity: "light.livingroom_light_5", group: "living" },
     L06: { entity: "light.kitchen_light_1", group: "kitchen" },

@@ -35,6 +35,7 @@ import {
 } from "./renderer-backend";
 import type { Live3dHandle, Live3dOptions } from "./handle";
 import { applyHashedPlankFloor } from "./plank-floor-material";
+import { computeDollhouseFrame } from "./dollhouse-view";
 
 export type { Live3dHandle, Live3dOptions } from "./handle";
 
@@ -944,54 +945,20 @@ export async function createThreeLive3dRenderer(
   };
 
   const applyDollhouseView = () => {
-    // Fit the plan to the canvas. The Blender DollhouseCam sits ~35 m up for
-    // Cycles plates; using that eye in live3d leaves the apartment as a dark
-    // island in a gray void, so we keep only its look direction / FOV.
-    const minX = ir.bounds.min.x;
-    const maxX = ir.bounds.max.x;
-    const minZ = ir.bounds.min.y;
-    const maxZ = ir.bounds.max.y;
-    const cx = (minX + maxX) / 2;
-    const cz = (minZ + maxZ) / 2;
-    const spanX = Math.max(100, maxX - minX);
-    const spanZ = Math.max(100, maxZ - minZ);
-    const span = Math.max(spanX, spanZ) * 1.06;
     const aspect = Math.max(0.5, camera.aspect || 16 / 9);
-    const view = ir.environment.dollhouseView;
-    const bird = ir.cameras.find((c) => /bird\s*view/i.test(c.name ?? ""));
-    const floorCam = ir.cameras.find((c) => /^floorplan$/i.test(c.name ?? ""));
-    const fovDeg = view?.fovDeg ?? 42;
-    const fovRad = view
-      ? (fovDeg * Math.PI) / 180
-      : bird?.fieldOfView ?? floorCam?.fieldOfView ?? (52 * Math.PI) / 180;
-    const hFov = 2 * Math.atan(Math.tan(fovRad / 2) * aspect);
-    const fitDist = Math.max(
-      span / 2 / Math.tan(fovRad / 2),
-      spanX / 2 / Math.tan(hFov / 2),
-      spanZ / 2 / Math.tan(fovRad / 2),
-    );
     const elev = opts.levelElevation ?? 0;
-    const height = Math.max(fitDist * 0.9, 400);
-    const polar = 0.26;
-    const baseX = view?.eye.x ?? bird?.x ?? floorCam?.x ?? cx;
-    const baseZ = view?.eye.z ?? bird?.y ?? floorCam?.y ?? cz;
-    const toCx = cx - baseX;
-    const toCz = cz - baseZ;
-    const az = Math.hypot(toCx, toCz) > 1 ? Math.atan2(toCz, toCx) : -Math.PI / 2;
-    const horiz = Math.sin(polar) * height;
-    const eye = {
-      x: cx - Math.cos(az) * horiz,
-      y: elev + Math.cos(polar) * height,
-      z: cz - Math.sin(az) * horiz,
-    };
-    const target = { x: cx, y: elev + 40, z: cz };
-    camera.fov = (fovRad * 180) / Math.PI;
+    const frame = computeDollhouseFrame(ir, {
+      levelElevation: elev,
+      aspect,
+      homeView: opts.homeView,
+    });
+    camera.fov = frame.fovDeg;
     camera.up.set(0, 1, 0);
-    camera.position.set(eye.x, eye.y, eye.z);
-    lookTarget.set(target.x, target.y, target.z);
+    camera.position.set(frame.eye.x, frame.eye.y, frame.eye.z);
+    lookTarget.set(frame.target.x, frame.target.y, frame.target.z);
     camera.lookAt(lookTarget);
-    camera.near = Math.max(10, height / 80);
-    camera.far = Math.max(200000, height * 20);
+    camera.near = frame.near;
+    camera.far = frame.far;
     camera.updateProjectionMatrix();
   };
 
@@ -1127,6 +1094,29 @@ export async function createThreeLive3dRenderer(
       renderer.setScissorTest(false);
       renderer.setViewport(0, 0, canvas.width, canvas.height);
       renderer.render(scene, camera);
+    },
+    resetHomeView() {
+      applyDollhouseView();
+      controls?.target.copy(lookTarget);
+    },
+    projectPlanToScreenPercent(planPos) {
+      const world = planToRender(planPos);
+      const v = new THREE.Vector3(world.x, world.y, world.z);
+      v.project(camera);
+      if (v.z < -1 || v.z > 1) {
+        return { left: 0, top: 0, behind: true };
+      }
+      return {
+        left: ((v.x + 1) / 2) * 100,
+        top: ((1 - v.y) / 2) * 100,
+      };
+    },
+    getHomeView() {
+      return {
+        eye: [camera.position.x, camera.position.y, camera.position.z],
+        target: [lookTarget.x, lookTarget.y, lookTarget.z],
+        fovDeg: camera.fov,
+      };
     },
     setHandlesVisible(visible) {
       for (const h of handles.values()) {
