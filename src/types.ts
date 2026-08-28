@@ -112,6 +112,15 @@ export interface RenderConfig {
   engine?: Live3dEngine;
   /** When true (default), keep the dollhouse camera fixed. Set false to orbit/pan. */
   lock_camera?: boolean;
+  /**
+   * Locked dollhouse eye/target (plan cm: x/z horizontal, y up).
+   * When set, Lock camera restores this framing instead of auto-fit.
+   */
+  home_view?: {
+    eye: [number, number, number];
+    target: [number, number, number];
+    fovDeg?: number;
+  };
   /** Babylon only: show the Babylon.js inspector (playground / debug). */
   inspector?: boolean;
 }

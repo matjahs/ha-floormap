@@ -16,7 +16,22 @@ export interface Live3dHandle {
   setCamera(cam: CameraIR): void;
   setEditTopDown(enabled: boolean): void;
   setOrbitEnabled(enabled: boolean): void;
+  /** Restore locked dollhouse home framing (home_view or auto-fit). */
+  resetHomeView(): void;
   setHandlesVisible(visible: boolean): void;
+  /**
+   * Project a plan-space point (cm) to overlay % within the canvas.
+   * Returns null when behind the camera or live projection is unavailable.
+   */
+  projectPlanToScreenPercent(
+    planPos: Vec3,
+  ): { left: number; top: number; behind?: boolean } | null;
+  /** Current camera eye/target/fov for copying into render.home_view. */
+  getHomeView(): {
+    eye: [number, number, number];
+    target: [number, number, number];
+    fovDeg: number;
+  };
   raycastFloor(clientX: number, clientY: number, fixtureId?: string): Vec3 | null;
   pickFixture(clientX: number, clientY: number, allowedIds?: Set<string>): string | null;
   setSun(shading: SunShading): void;
@@ -44,6 +59,12 @@ export interface Live3dOptions {
   planNorthDeg?: number;
   gpu?: Live3dGpuBackend;
   lockCamera?: boolean;
+  /** Exact locked framing (plan cm). Overrides auto-fit when set. */
+  homeView?: {
+    eye: { x: number; y: number; z: number };
+    target: { x: number; y: number; z: number };
+    fovDeg?: number;
+  };
   /** live3d backend — default three; babylon for WebGPU spike. */
   engine?: Live3dEngine;
   /** Babylon only: open the debug inspector overlay. */

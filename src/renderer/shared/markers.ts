@@ -15,6 +15,9 @@ export function isDefaultToggleAction(
   return a.action === "toggle";
 }
 
+const HOLD_MS = 500;
+const MOVE_PX = 12;
+
 export function renderMarkers(
   hass: HomeAssistant | undefined,
   markers: MarkerState[],
@@ -31,6 +34,20 @@ export function renderMarkers(
       ? `rgba(${Math.round(m.params.color[0] * 255)},${Math.round(m.params.color[1] * 255)},${Math.round(m.params.color[2] * 255)},0.85)`
       : "rgba(40,40,40,0.7)";
     const act = actions[m.fixtureId] ?? {};
+    let press: {
+      x: number;
+      y: number;
+      timer: number;
+      held: boolean;
+    } | null = null;
+
+    const clearPress = () => {
+      if (press?.timer) {
+        window.clearTimeout(press.timer);
+      }
+      press = null;
+    };
+
     return html`
       <button
         class="sf-marker ${warn ? "sf-marker-warn" : ""}"
@@ -42,14 +59,50 @@ export function renderMarkers(
         })}
         title=${m.friendlyName ?? m.entity}
         aria-label=${m.friendlyName ?? m.entity}
-        @click=${(ev: Event) => {
+        @pointerdown=${(ev: PointerEvent) => {
+          if (ev.button !== undefined && ev.button !== 0) {
+            return;
+          }
           ev.stopPropagation();
+          clearPress();
+          const timer = window.setTimeout(() => {
+            if (!press) {
+              return;
+            }
+            press.held = true;
+            if (hasAction(act.hold)) {
+              onAction(
+                { detail: { action: "hold" } } as ActionHandlerEvent,
+                m.entity,
+                m.fixtureId,
+              );
+            }
+          }, HOLD_MS);
+          press = { x: ev.clientX, y: ev.clientY, timer, held: false };
+          try {
+            (ev.currentTarget as HTMLElement).setPointerCapture(ev.pointerId);
+          } catch {
+            // ignore
+          }
+        }}
+        @pointerup=${(ev: PointerEvent) => {
+          ev.stopPropagation();
+          if (!press) {
+            return;
+          }
+          const moved = Math.hypot(ev.clientX - press.x, ev.clientY - press.y) > MOVE_PX;
+          const held = press.held;
+          clearPress();
+          if (held || moved) {
+            return;
+          }
           onAction(
             { detail: { action: "tap" } } as ActionHandlerEvent,
             m.entity,
             m.fixtureId,
           );
         }}
+        @pointercancel=${() => clearPress()}
         @dblclick=${(ev: Event) => {
           ev.stopPropagation();
           ev.preventDefault();
@@ -63,13 +116,7 @@ export function renderMarkers(
         }}
         @contextmenu=${(ev: Event) => {
           ev.preventDefault();
-          if (hasAction(act.hold)) {
-            onAction(
-              { detail: { action: "hold" } } as ActionHandlerEvent,
-              m.entity,
-              m.fixtureId,
-            );
-          }
+          ev.stopPropagation();
         }}
       >
         ${hass

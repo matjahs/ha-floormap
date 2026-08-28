@@ -6,7 +6,6 @@
 # HA entity ids come from Blender Object custom property `device_id`
 # (exported as fixture.entity in appartement.scene.json). Card YAML owns
 # groups / actions; the card merges Blender entity ids on load.
-# L02/L03 still use placeholders until device_id is set in Blender.
 # Set edit_mode: true to drag lights on the card (YAML dashboards: export placements.json).
 #
 # Baked SunFlow / picture-elements overlays: see examples/baked-sunflow.yaml
@@ -44,10 +43,10 @@ entities:
     entity: light.livingroom_light_3
     group: living
   L02:
-    entity: light.kajplats_e14_ws_globe_806lm
+    entity: light.ceiling_2
     group: living
   L03:
-    entity: light.kajplats_e14_ws_globe_806lm_3
+    entity: light.ceiling_1
     group: living
   L04:
     entity: light.livingroom_light_1
