@@ -13,19 +13,59 @@ export type PlanProjectFn = (
   planPos: Vec3,
 ) => { left: number; top: number; behind?: boolean } | null;
 
+/**
+ * Plan-Z (cm) for projecting room tap polygons.
+ *
+ * Dollhouse 3/4 cameras foreshorten floor-plane polygons so a tap near a light
+ * marker (at fixture height) can land in a neighboring room's skewed floor
+ * footprint. Projecting at ceiling height keeps room hotspots aligned with the
+ * visible room volumes and markers.
+ *
+ * Source priority:
+ * 1. Active level `elevation + height` (SH3D / Blender clear height)
+ * 2. Optional `floorHeightCm` (e.g. `render.floor_height_m * 100`) when level height missing
+ * 3. Default 250 cm clear height
+ *
+ * When scene AABB `bounds.max.z` is below the declared ceiling, clamp to that
+ * mesh top (minus 1 cm) so we sit on the underside of the exported ceiling.
+ */
+export function roomHitTestElevationCm(
+  ir: FloorplanIR,
+  levelId?: string,
+  opts?: { floorHeightCm?: number },
+): number {
+  const level =
+    (levelId ? ir.levels.find((l) => l.id === levelId) : undefined) ?? ir.levels[0];
+  const elev = level?.elevation ?? 0;
+  let clearHeight = 0;
+  if (level?.height && level.height > 0) {
+    clearHeight = level.height;
+  } else if (opts?.floorHeightCm && opts.floorHeightCm > 0) {
+    clearHeight = opts.floorHeightCm;
+  } else {
+    clearHeight = 250;
+  }
+  let ceilingZ = elev + clearHeight;
+  const meshTop = ir.bounds?.max?.z;
+  if (typeof meshTop === "number" && Number.isFinite(meshTop) && meshTop > elev + 50) {
+    ceilingZ = Math.min(ceilingZ, meshTop);
+  }
+  return Math.max(elev + 1, ceilingZ - 1);
+}
+
 export function buildRoomHotspots(
   ir: FloorplanIR,
   camera: CameraIR,
   aspect: number,
   levelId?: string,
+  opts?: { floorHeightCm?: number },
 ): RoomHotspot[] {
-  const elevation =
-    ir.levels.find((l) => l.id === levelId)?.elevation ?? ir.levels[0]?.elevation ?? 0;
+  const ceilingZ = roomHitTestElevationCm(ir, levelId, opts);
   return ir.rooms
     .filter((r) => !levelId || !r.levelId || r.levelId === levelId)
     .map((room) => ({
       room,
-      polygonUv: projectPolygon(camera, room.polygon, elevation + 1, { aspect }),
+      polygonUv: projectPolygon(camera, room.polygon, ceilingZ, { aspect }),
       areaId: room.areaHint,
     }));
 }
@@ -35,10 +75,9 @@ export function buildRoomHotspotsLive3d(
   ir: FloorplanIR,
   project: PlanProjectFn,
   levelId?: string,
+  opts?: { floorHeightCm?: number },
 ): RoomHotspot[] {
-  const elevation =
-    ir.levels.find((l) => l.id === levelId)?.elevation ?? ir.levels[0]?.elevation ?? 0;
-  const floorZ = elevation + 1;
+  const ceilingZ = roomHitTestElevationCm(ir, levelId, opts);
   const out: RoomHotspot[] = [];
   for (const room of ir.rooms) {
     if (levelId && room.levelId && room.levelId !== levelId) {
@@ -47,7 +86,7 @@ export function buildRoomHotspotsLive3d(
     const polygonUv: Vec2[] = [];
     let skip = false;
     for (const p of room.polygon) {
-      const pct = project({ x: p.x, y: p.y, z: floorZ });
+      const pct = project({ x: p.x, y: p.y, z: ceilingZ });
       if (!pct || pct.behind) {
         skip = true;
         break;
