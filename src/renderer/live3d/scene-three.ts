@@ -1095,6 +1095,9 @@ export async function createThreeLive3dRenderer(
       renderer.setViewport(0, 0, canvas.width, canvas.height);
       renderer.render(scene, camera);
     },
+    setInspector(_enabled) {
+      // Babylon-only debug overlay.
+    },
     resetHomeView() {
       applyDollhouseView();
       controls?.target.copy(lookTarget);
