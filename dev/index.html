@@ -52,14 +52,17 @@
       .layout {
         display: grid;
         grid-template-columns: minmax(0, 1fr) 280px;
+        grid-template-rows: minmax(0, 1fr);
         gap: 16px;
         padding: 16px 20px 32px;
         max-width: 1400px;
         margin: 0 auto;
+        min-height: calc(100dvh - 5.5rem);
       }
       @media (max-width: 960px) {
         .layout {
           grid-template-columns: 1fr;
+          grid-template-rows: minmax(28rem, 60vh) auto;
         }
       }
       .stage {
@@ -67,8 +70,11 @@
         border: 1px solid var(--border);
         border-radius: 12px;
         padding: 12px;
-        overflow: auto;
+        overflow: hidden;
         position: relative;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
       }
       .side {
         background: var(--panel);
@@ -156,9 +162,14 @@
       #status.err {
         color: #f5a8a8;
       }
+      /* Match the card :host flex column so sf-stage-fill gets a real height. */
       sunflow-floorplan-card {
-        display: block;
+        display: flex;
+        flex-direction: column;
         width: 100%;
+        flex: 1 1 auto;
+        min-height: 28rem;
+        height: 100%;
       }
     </style>
   </head>
