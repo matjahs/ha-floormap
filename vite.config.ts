@@ -1,8 +1,17 @@
 import { defineConfig } from "vitest/config";
+import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+
+const pkg = JSON.parse(readFileSync(resolve(__dirname, "package.json"), "utf8")) as {
+  version: string;
+};
+const sunflowRevision = process.env.SUNFLOW_REVISION?.trim() || pkg.version;
 
 export default defineConfig({
   base: "./",
+  define: {
+    __SUNFLOW_REVISION__: JSON.stringify(sunflowRevision),
+  },
   build: {
     outDir: "dist",
     emptyOutDir: true,

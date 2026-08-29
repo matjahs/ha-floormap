@@ -60,8 +60,10 @@ import {
 } from "./renderer/shared/rooms";
 import type { Live3dHandle, Live3dDebugInfo } from "./renderer/live3d/scene";
 import { resolvePlanNorthDeg, resolveCardFloorSun, sunShadingFromHass } from "./sun";
+import { CARD_REVISION } from "./version";
 
 export const CARD_TYPE = "sunflow-floorplan-card";
+export { CARD_REVISION };
 
 /** Register once — HA can load the module via resources and cache/reload races. */
 export class SunflowFloorplanCard extends LitElement implements LovelaceCard {
@@ -142,13 +144,15 @@ export class SunflowFloorplanCard extends LitElement implements LovelaceCard {
   }
 
   public getCardSize(): number {
-    return 6;
+    const mode = this._config?.render?.mode ?? "live3d";
+    return mode === "live3d" ? 24 : 6;
   }
 
   public getGridOptions() {
+    const mode = this._config?.render?.mode ?? "live3d";
     return {
       columns: 12,
-      rows: 6,
+      rows: mode === "live3d" ? 12 : 6,
       min_columns: 6,
       min_rows: 3,
     };
@@ -1688,43 +1692,6 @@ export class SunflowFloorplanCard extends LitElement implements LovelaceCard {
     `;
   }
 
-  private _activateGroup(groupId: string, action: string): void {
-    if (!this.hass) {
-      return;
-    }
-    const g = findGroupConfig(this._config, groupId) ?? {};
-    const master = g.entity;
-    if (master) {
-      dispatchMarkerAction(this, this.hass, {
-        entity: master,
-        tap_action: g.tap_action,
-        hold_action: g.hold_action,
-        double_tap_action: g.double_tap_action,
-      }, action);
-      return;
-    }
-    const members = memberEntitiesForGroup(this._config, groupId, this.hass, this._ir);
-    if (members.length === 0) {
-      return;
-    }
-    if (action === "tap" && isDefaultToggleAction(g)) {
-      void this.hass.callService("light", "toggle", { entity_id: members });
-      return;
-    }
-    // Fall back to first member for more-info / custom actions without master entity.
-    dispatchMarkerAction(
-      this,
-      this.hass,
-      {
-        entity: members[0]!,
-        tap_action: g.tap_action,
-        hold_action: g.hold_action,
-        double_tap_action: g.double_tap_action,
-      },
-      action,
-    );
-  }
-
   private _allOff(): void {
     if (!this.hass) {
       return;
@@ -1954,6 +1921,44 @@ export class SunflowFloorplanCard extends LitElement implements LovelaceCard {
     const roomPromptStats = roomPrompt ? this._roomPromptSummary() : null;
 
     return html`
+      <div class="sf-topbar">
+        <div class="sf-controls">
+          <button @click=${this._allOff}>All off</button>
+          ${canFreeCam
+            ? html`<button
+                class=${this._cameraLocked() ? "" : "active"}
+                @click=${() => this._toggleCameraLock()}
+              >
+                ${this._cameraLocked() ? "Free camera" : "Lock camera"}
+              </button>`
+            : nothing}
+          ${canFreeCam && !this._cameraLocked()
+            ? html`<button @click=${() => void this._copyHomeView()}>Copy home view</button>`
+            : nothing}
+          ${canInspector
+            ? html`<button
+                class=${this._inspectorEnabled() ? "active" : ""}
+                @click=${() => this._toggleInspector()}
+              >
+                ${this._inspectorEnabled() ? "Inspector on" : "Inspector"}
+              </button>`
+            : nothing}
+          ${canEdit
+            ? html`<button class=${this._editing ? "active" : ""} @click=${this._toggleEditing}>
+                ${this._editing ? "Done editing" : "Edit lights"}
+              </button>`
+            : nothing}
+          ${canDrawTap
+            ? html`<button
+                class=${this._drawingTap ? "active" : ""}
+                @click=${() => this._toggleDrawingTap()}
+              >
+                ${this._drawingTap ? "Done tap areas" : "Draw tap area"}
+              </button>`
+            : nothing}
+        </div>
+        <div class="sf-rev" title="Card revision">${CARD_REVISION}</div>
+      </div>
       ${this._config.title
         ? html`<div class="sf-title">${this._config.title}</div>`
         : nothing}
@@ -1985,27 +1990,20 @@ export class SunflowFloorplanCard extends LitElement implements LovelaceCard {
             ${this._missing.length} entities not found
           </div>`
         : nothing}
-      ${groupIds.length > 0
+      ${this._drawingTap && groupIds.length > 0
         ? html`
             <div class="sf-groups">
               ${groupIds.map((gid) => {
                 const hue = groupHue(gid);
-                const selected = this._drawingTap && this._drawingGroupId === gid;
+                const selected = this._drawingGroupId === gid;
                 return html`
                   <button
                     class="sf-group-chip ${selected ? "active" : ""}"
                     style="--sf-group-hue:${hue}"
-                    title=${this._drawingTap
-                      ? `Draw tap area for ${gid}`
-                      : `Control ${roomDisplayName(this._ir, gid)}`}
+                    title=${`Draw tap area for ${gid}`}
                     @click=${(ev: Event) => this._onGroupChipClick(gid, ev)}
                     @contextmenu=${(ev: Event) => {
-                      if (this._drawingTap) {
-                        ev.preventDefault();
-                        return;
-                      }
                       ev.preventDefault();
-                      this._activateGroup(gid, "hold");
                     }}
                   >
                     ${roomDisplayName(this._ir, gid)}
@@ -2068,11 +2066,11 @@ export class SunflowFloorplanCard extends LitElement implements LovelaceCard {
           </div>`
         : nothing}
       <div
-        class="sf-stage ${this._editing || this._drawingTap ? "sf-editing" : ""} ${this
-          ._drawingTap
-          ? "sf-drawing-tap"
-          : ""}"
-        style="aspect-ratio: ${aspect}"
+        class="sf-stage ${mode === "live3d" && !this._live3dFallback ? "sf-stage-fill" : ""} ${this
+          ._editing || this._drawingTap
+          ? "sf-editing"
+          : ""} ${this._drawingTap ? "sf-drawing-tap" : ""}"
+        style=${mode === "live3d" && !this._live3dFallback ? nothing : `aspect-ratio: ${aspect}`}
         @click=${this._onStageClick}
         @pointerdown=${this._onStagePointerDown}
         @pointermove=${this._onStagePointerMove}
@@ -2132,41 +2130,6 @@ export class SunflowFloorplanCard extends LitElement implements LovelaceCard {
             ? html`<div class="sf-cam-hint">Lock camera to control lights</div>`
             : nothing}
       </div>
-      <div class="sf-controls">
-        <button @click=${this._allOff}>All off</button>
-        ${canFreeCam
-          ? html`<button
-              class=${this._cameraLocked() ? "" : "active"}
-              @click=${() => this._toggleCameraLock()}
-            >
-              ${this._cameraLocked() ? "Free camera" : "Lock camera"}
-            </button>`
-          : nothing}
-        ${canFreeCam && !this._cameraLocked()
-          ? html`<button @click=${() => void this._copyHomeView()}>Copy home view</button>`
-          : nothing}
-        ${canInspector
-          ? html`<button
-              class=${this._inspectorEnabled() ? "active" : ""}
-              @click=${() => this._toggleInspector()}
-            >
-              ${this._inspectorEnabled() ? "Inspector on" : "Inspector"}
-            </button>`
-          : nothing}
-        ${canEdit
-          ? html`<button class=${this._editing ? "active" : ""} @click=${this._toggleEditing}>
-              ${this._editing ? "Done editing" : "Edit lights"}
-            </button>`
-          : nothing}
-        ${canDrawTap
-          ? html`<button
-              class=${this._drawingTap ? "active" : ""}
-              @click=${() => this._toggleDrawingTap()}
-            >
-              ${this._drawingTap ? "Done tap areas" : "Draw tap area"}
-            </button>`
-          : nothing}
-      </div>
       ${roomPrompt && roomPromptStats
         ? html`
             <div
@@ -2214,19 +2177,44 @@ export class SunflowFloorplanCard extends LitElement implements LovelaceCard {
 
   static override styles = css`
     :host {
-      display: block;
+      display: flex;
+      flex-direction: column;
+      box-sizing: border-box;
       position: relative;
       color: var(--primary-text-color);
+      height: calc(100dvh - var(--header-height, 56px));
+      max-height: calc(100dvh - var(--header-height, 56px));
+      overflow: hidden;
+      padding: 0.35rem 0.4rem 0.5rem;
+    }
+    .sf-topbar {
+      display: flex;
+      align-items: flex-start;
+      gap: 0.5rem;
+      flex: 0 0 auto;
+      margin-bottom: 0.35rem;
+    }
+    .sf-rev {
+      margin-left: auto;
+      flex: 0 0 auto;
+      font-size: 0.65rem;
+      line-height: 1.2;
+      opacity: 0.5;
+      padding-top: 0.55rem;
+      font-variant-numeric: tabular-nums;
+      user-select: text;
     }
     .sf-title {
       font-size: 1.1rem;
       font-weight: 600;
       margin-bottom: 0.5rem;
+      flex: 0 0 auto;
     }
     .sf-floors {
       display: flex;
       gap: 0.35rem;
       margin-bottom: 0.5rem;
+      flex: 0 0 auto;
     }
     .sf-floors button,
     .sf-controls button,
@@ -2244,6 +2232,7 @@ export class SunflowFloorplanCard extends LitElement implements LovelaceCard {
       flex-wrap: wrap;
       gap: 0.35rem;
       margin-bottom: 0.5rem;
+      flex: 0 0 auto;
     }
     .sf-group-chip {
       border-color: hsl(var(--sf-group-hue, 200) 55% 45%);
@@ -2262,6 +2251,7 @@ export class SunflowFloorplanCard extends LitElement implements LovelaceCard {
       border-radius: 6px;
       font-size: 0.85rem;
       margin-bottom: 0.5rem;
+      flex: 0 0 auto;
     }
     .sf-edit-banner {
       background: #2a3a28;
@@ -2270,6 +2260,7 @@ export class SunflowFloorplanCard extends LitElement implements LovelaceCard {
       border-radius: 6px;
       font-size: 0.85rem;
       margin-bottom: 0.5rem;
+      flex: 0 0 auto;
     }
     .sf-draw-actions {
       display: inline-flex;
@@ -2299,6 +2290,11 @@ export class SunflowFloorplanCard extends LitElement implements LovelaceCard {
       background: #111;
       border-radius: 8px;
       overflow: hidden;
+    }
+    .sf-stage.sf-stage-fill {
+      flex: 1 1 auto;
+      min-height: 0;
+      height: auto;
     }
     .sf-stage.sf-editing {
       outline: 2px solid var(--primary-color, #6ea8fe);
@@ -2537,9 +2533,11 @@ export class SunflowFloorplanCard extends LitElement implements LovelaceCard {
       line-height: 1;
     }
     .sf-controls {
-      margin-top: 0.5rem;
       display: flex;
+      flex-wrap: wrap;
       gap: 0.5rem;
+      flex: 1 1 auto;
+      min-width: 0;
     }
     .sf-room-prompt-backdrop {
       position: absolute;
