@@ -317,7 +317,8 @@ export class SunflowFloorplanCardEditor extends LitElement implements LovelaceCa
           overrides. With <code>edit_mode: true</code>, use
           <strong>Draw tap area</strong> on the card (select a group chip, click the map) or
           set <code>groups.NAME.tap_area</code> in YAML. Optional
-          <code>groups.NAME.entity</code> for a master toggle. Hold on a marker = more-info
+          <code>groups.NAME.entity</code> for a master. Room taps ask Turn on / Turn off.
+          Hold on a marker = more-info
           (default). Strips: set <code>segments</code> on the entity entry.
         </p>
       </div>

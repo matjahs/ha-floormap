@@ -86,6 +86,8 @@ export class SunflowFloorplanCard extends LitElement implements LovelaceCard {
   @state() private _dragTapIndex: number | null = null;
   /** live3d requested but WebGL unavailable — marker-only preview */
   @state() private _live3dFallback = false;
+  /** Confirm before turning a whole room on/off (floor tap, chip, or drawn area). */
+  @state() private _roomPrompt: { groupId: string; entities: string[] } | null = null;
 
   private _compositor: BakedCompositor | null = null;
   private _animator = new LightStateAnimator();
@@ -1268,12 +1270,19 @@ export class SunflowFloorplanCard extends LitElement implements LovelaceCard {
   };
 
   private _onStageClick(ev: MouseEvent): void {
+    if (this._roomPrompt) {
+      return;
+    }
     if (this._drawingTap) {
       ev.preventDefault();
       return;
     }
     if (this._editing || this._dragMoved) {
       this._dragMoved = false;
+      return;
+    }
+    const target = ev.target as HTMLElement | null;
+    if (target?.closest?.(".sf-marker")) {
       return;
     }
     const stage = ev.currentTarget as HTMLElement;
@@ -1284,22 +1293,14 @@ export class SunflowFloorplanCard extends LitElement implements LovelaceCard {
     // Floor-mesh rooms (plan-space) take precedence over screen-space group overlays.
     const hit = hitTestRoom(this._hotspots, u, v);
     if (hit && this.hass) {
-      const roomId = hit.room.id;
-      const byGroup = memberEntitiesForGroup(this._config, roomId, this.hass, this._ir);
-      if (byGroup.length > 0) {
-        this._activateGroup(roomId, "tap");
-        return;
-      }
-      const ents = this._entitiesInFloorRoom(hit.room.id);
-      if (ents.length > 0) {
-        void this.hass.callService("light", "toggle", { entity_id: ents });
+      if (this._promptRoomControl(hit.room.id)) {
         return;
       }
     }
 
     const groupHit = hitTestGroupTap(this._groupTapHotspots, u, v);
     if (groupHit && this.hass) {
-      this._activateGroup(groupHit.groupId, "tap");
+      this._promptRoomControl(groupHit.groupId);
       return;
     }
   }
@@ -1333,7 +1334,66 @@ export class SunflowFloorplanCard extends LitElement implements LovelaceCard {
       this._selectTapGroup(gid);
       return;
     }
-    this._activateGroup(gid, "tap");
+    this._promptRoomControl(gid);
+  }
+
+  /** Collect lights for a room/group and open the confirm sheet. Returns false if none. */
+  private _promptRoomControl(groupId: string): boolean {
+    if (!this.hass) {
+      return false;
+    }
+    const entities = this._entitiesForRoomControl(groupId);
+    if (entities.length === 0) {
+      return false;
+    }
+    this._roomPrompt = { groupId, entities };
+    this.requestUpdate();
+    return true;
+  }
+
+  private _entitiesForRoomControl(groupId: string): string[] {
+    const members = memberEntitiesForGroup(this._config, groupId, this.hass, this._ir);
+    if (members.length > 0) {
+      return members;
+    }
+    const floor = this._entitiesInFloorRoom(groupId);
+    if (floor.length > 0) {
+      return floor;
+    }
+    const master = findGroupConfig(this._config, groupId)?.entity;
+    return master ? [master] : [];
+  }
+
+  private _dismissRoomPrompt(): void {
+    this._roomPrompt = null;
+    this.requestUpdate();
+  }
+
+  private _applyRoomPrompt(mode: "on" | "off"): void {
+    const prompt = this._roomPrompt;
+    if (!prompt || !this.hass) {
+      return;
+    }
+    void this.hass.callService("light", mode === "on" ? "turn_on" : "turn_off", {
+      entity_id: prompt.entities,
+    });
+    this._roomPrompt = null;
+    this.requestUpdate();
+  }
+
+  private _roomPromptSummary(): { on: number; off: number; total: number } {
+    const entities = this._roomPrompt?.entities ?? [];
+    let on = 0;
+    let off = 0;
+    for (const id of entities) {
+      const st = this.hass?.states?.[id]?.state;
+      if (st === "on") {
+        on += 1;
+      } else if (st === "off") {
+        off += 1;
+      }
+    }
+    return { on, off, total: entities.length };
   }
 
   private _selectTapGroup(gid: string): void {
@@ -1853,6 +1913,11 @@ export class SunflowFloorplanCard extends LitElement implements LovelaceCard {
       !!this._config.edit_mode && mode === "live3d" && !this._live3dFallback;
     const canDrawTap = !!this._config.edit_mode && groupIds.length > 0 && !hasBlenderRooms;
     const canFreeCam = mode === "live3d" && !this._live3dFallback;
+    const roomPrompt = this._roomPrompt;
+    const roomPromptName = roomPrompt
+      ? roomDisplayName(this._ir, roomPrompt.groupId)
+      : "";
+    const roomPromptStats = roomPrompt ? this._roomPromptSummary() : null;
 
     return html`
       ${this._config.title
@@ -1898,7 +1963,7 @@ export class SunflowFloorplanCard extends LitElement implements LovelaceCard {
                     style="--sf-group-hue:${hue}"
                     title=${this._drawingTap
                       ? `Draw tap area for ${gid}`
-                      : `Toggle ${roomDisplayName(this._ir, gid)}`}
+                      : `Control ${roomDisplayName(this._ir, gid)}`}
                     @click=${(ev: Event) => this._onGroupChipClick(gid, ev)}
                     @contextmenu=${(ev: Event) => {
                       if (this._drawingTap) {
@@ -2015,6 +2080,7 @@ export class SunflowFloorplanCard extends LitElement implements LovelaceCard {
                       @pointerdown=${(ev: PointerEvent) => this._onMarkerPointerDown(ev, m)}
                       @pointerup=${(ev: PointerEvent) => this._onMarkerPointerUp(ev, m)}
                       @pointercancel=${() => this._onMarkerPointerCancel()}
+                      @click=${(ev: Event) => ev.stopPropagation()}
                       @contextmenu=${(ev: Event) => this._onMarkerContextMenu(ev)}
                     >
                       <span class="sf-dot" style="opacity:${m.params.on ? 1 : 0.35}"></span>
@@ -2059,6 +2125,42 @@ export class SunflowFloorplanCard extends LitElement implements LovelaceCard {
             </button>`
           : nothing}
       </div>
+      ${roomPrompt && roomPromptStats
+        ? html`
+            <div
+              class="sf-room-prompt-backdrop"
+              @click=${() => this._dismissRoomPrompt()}
+            ></div>
+            <div
+              class="sf-room-prompt"
+              role="dialog"
+              aria-modal="true"
+              aria-label=${`Control ${roomPromptName}`}
+              @click=${(ev: Event) => ev.stopPropagation()}
+            >
+              <div class="sf-room-prompt-title">${roomPromptName}</div>
+              <div class="sf-room-prompt-meta">
+                ${roomPromptStats.total} light${roomPromptStats.total === 1 ? "" : "s"}
+                · ${roomPromptStats.on} on · ${roomPromptStats.off} off
+              </div>
+              <div class="sf-room-prompt-actions">
+                <button
+                  class="sf-room-prompt-on"
+                  @click=${() => this._applyRoomPrompt("on")}
+                >
+                  Turn on
+                </button>
+                <button
+                  class="sf-room-prompt-off"
+                  @click=${() => this._applyRoomPrompt("off")}
+                >
+                  Turn off
+                </button>
+                <button @click=${() => this._dismissRoomPrompt()}>Cancel</button>
+              </div>
+            </div>
+          `
+        : nothing}
     `;
   }
 
@@ -2071,6 +2173,7 @@ export class SunflowFloorplanCard extends LitElement implements LovelaceCard {
   static override styles = css`
     :host {
       display: block;
+      position: relative;
       color: var(--primary-text-color);
     }
     .sf-title {
@@ -2395,6 +2498,61 @@ export class SunflowFloorplanCard extends LitElement implements LovelaceCard {
       margin-top: 0.5rem;
       display: flex;
       gap: 0.5rem;
+    }
+    .sf-room-prompt-backdrop {
+      position: absolute;
+      inset: 0;
+      z-index: 40;
+      background: rgba(0, 0, 0, 0.45);
+    }
+    .sf-room-prompt {
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      z-index: 41;
+      transform: translate(-50%, -50%);
+      width: min(22rem, calc(100% - 1.5rem));
+      padding: 1rem 1.1rem;
+      border-radius: 12px;
+      border: 1px solid var(--divider-color);
+      background: var(--card-background-color, #1c1c1c);
+      box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+    }
+    .sf-room-prompt-title {
+      font-size: 1.15rem;
+      font-weight: 650;
+      margin-bottom: 0.25rem;
+    }
+    .sf-room-prompt-meta {
+      font-size: 0.9rem;
+      opacity: 0.75;
+      margin-bottom: 0.9rem;
+    }
+    .sf-room-prompt-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.4rem;
+    }
+    .sf-room-prompt-actions button {
+      flex: 1 1 5.5rem;
+      min-height: 48px;
+      padding: 0 0.75rem;
+      border-radius: 8px;
+      border: 1px solid var(--divider-color);
+      background: var(--secondary-background-color, #2a2a2a);
+      color: inherit;
+      cursor: pointer;
+      font-size: 1rem;
+    }
+    .sf-room-prompt-on {
+      background: var(--primary-color) !important;
+      color: var(--text-primary-color, #fff) !important;
+      border-color: transparent !important;
+    }
+    .sf-room-prompt-off {
+      background: var(--error-color, #db4437) !important;
+      color: #fff !important;
+      border-color: transparent !important;
     }
     .sf-css-stack {
       position: relative;
