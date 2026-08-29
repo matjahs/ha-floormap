@@ -23,7 +23,7 @@ export type AmbientMode = "off" | "sun" | string;
 export type Live3dGpuBackend = "webgpu" | "webgl";
 /** live3d scene engine — default three; babylon for WebGPU-first spike. */
 export type Live3dEngine = "three" | "babylon";
-export type FixtureKind = "point" | "strip";
+export type FixtureKind = "point" | "strip" | "spot" | "area";
 
 /** WLED-style segment along a strip fixture (fractions 0..1). */
 export interface StripSegmentConfig {
@@ -227,6 +227,8 @@ export interface MarkerState {
   group?: string;
   /** When set, marker is a strip segment (action target = segment entity). */
   segmentIndex?: number;
+  /** HA brightness 0–100 when on (UI %), else undefined. */
+  brightnessPct?: number;
 }
 
 declare global {

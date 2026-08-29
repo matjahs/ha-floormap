@@ -43,7 +43,12 @@
       ],
       "color": "#fff2d6",
       "power": 1.0,
-      "entity": "light.livingroom_light_3"
+      "entity": "light.livingroom_light_3",
+      "direction": [
+        0.0,
+        0.0,
+        -1.0
+      ]
     },
     {
       "id": "L02",
@@ -56,7 +61,12 @@
       ],
       "color": "#fff2d6",
       "power": 1.0,
-      "entity": "light.ceiling_2"
+      "entity": "light.ceiling_2",
+      "direction": [
+        0.0,
+        0.0,
+        -1.0
+      ]
     },
     {
       "id": "L03",
@@ -69,12 +79,17 @@
       ],
       "color": "#fff2d6",
       "power": 1.0,
-      "entity": "light.ceiling_1"
+      "entity": "light.ceiling_1",
+      "direction": [
+        0.0,
+        0.0,
+        -1.0
+      ]
     },
     {
       "id": "L04",
       "name": "Dining pendant",
-      "kind": "point",
+      "kind": "spot",
       "position": [
         286.948,
         1096.192,
@@ -82,12 +97,19 @@
       ],
       "color": "#fff2d6",
       "power": 1.0,
-      "entity": "light.livingroom_light_1"
+      "entity": "light.livingroom_light_1",
+      "spotAngleDeg": 55.0,
+      "spotBlend": 0.2,
+      "direction": [
+        0.0,
+        0.0,
+        -1.0
+      ]
     },
     {
       "id": "L05",
       "name": "HEKTAR floor",
-      "kind": "point",
+      "kind": "spot",
       "position": [
         731.24,
         572.744,
@@ -95,7 +117,14 @@
       ],
       "color": "#fff2d6",
       "power": 1.0,
-      "entity": "light.livingroom_light_5"
+      "entity": "light.livingroom_light_5",
+      "spotAngleDeg": 70.0,
+      "spotBlend": 0.25,
+      "direction": [
+        0.15,
+        -0.2,
+        -0.97
+      ]
     },
     {
       "id": "L06",
@@ -108,12 +137,17 @@
       ],
       "color": "#fff2d6",
       "power": 1.0,
-      "entity": "light.kitchen_light_1"
+      "entity": "light.kitchen_light_1",
+      "direction": [
+        0.0,
+        0.0,
+        -1.0
+      ]
     },
     {
       "id": "L07",
       "name": "Kitchen LED island",
-      "kind": "point",
+      "kind": "area",
       "position": [
         559.462,
         1090.114,
@@ -121,12 +155,19 @@
       ],
       "color": "#fff2d6",
       "power": 1.0,
-      "entity": "light.kitchen_island_nanoleaf_light_strip"
+      "entity": "light.kitchen_island_nanoleaf_light_strip",
+      "areaWidthCm": 120.0,
+      "areaHeightCm": 6.0,
+      "direction": [
+        0.0,
+        0.0,
+        -1.0
+      ]
     },
     {
       "id": "L08",
       "name": "Kitchen LED pantry",
-      "kind": "point",
+      "kind": "area",
       "position": [
         409.331,
         1307.669,
@@ -134,12 +175,19 @@
       ],
       "color": "#fff2d6",
       "power": 1.0,
-      "entity": "light.kitchen_led_strip_pantry"
+      "entity": "light.kitchen_led_strip_pantry",
+      "areaWidthCm": 80.0,
+      "areaHeightCm": 6.0,
+      "direction": [
+        0.0,
+        0.0,
+        -1.0
+      ]
     },
     {
       "id": "L09",
       "name": "Kitchen LED fridge",
-      "kind": "point",
+      "kind": "area",
       "position": [
         744.106,
         1282.915,
@@ -147,7 +195,14 @@
       ],
       "color": "#fff2d6",
       "power": 1.0,
-      "entity": "light.kitchen_led_strip_fridge_kitchen_ledstrip_2"
+      "entity": "light.kitchen_led_strip_fridge_kitchen_ledstrip_2",
+      "areaWidthCm": 50.0,
+      "areaHeightCm": 6.0,
+      "direction": [
+        0.0,
+        0.0,
+        -1.0
+      ]
     },
     {
       "id": "L10",
@@ -160,7 +215,12 @@
       ],
       "color": "#fff2d6",
       "power": 1.0,
-      "entity": "light.bedroom_2"
+      "entity": "light.bedroom_2",
+      "direction": [
+        0.0,
+        0.0,
+        -1.0
+      ]
     },
     {
       "id": "L11",
@@ -173,7 +233,12 @@
       ],
       "color": "#fff2d6",
       "power": 1.0,
-      "entity": "light.bedroom_1"
+      "entity": "light.bedroom_1",
+      "direction": [
+        0.0,
+        0.0,
+        -1.0
+      ]
     },
     {
       "id": "L12",
@@ -186,7 +251,12 @@
       ],
       "color": "#fff2d6",
       "power": 1.0,
-      "entity": "light.office_light_a"
+      "entity": "light.office_light_a",
+      "direction": [
+        0.0,
+        0.0,
+        -1.0
+      ]
     },
     {
       "id": "L13",
@@ -199,7 +269,12 @@
       ],
       "color": "#fff2d6",
       "power": 1.0,
-      "entity": "light.office_light_b"
+      "entity": "light.office_light_b",
+      "direction": [
+        0.0,
+        0.0,
+        -1.0
+      ]
     },
     {
       "id": "L14",
@@ -212,7 +287,12 @@
       ],
       "color": "#fff2d6",
       "power": 1.0,
-      "entity": "light.hallway_1_light"
+      "entity": "light.hallway_1_light",
+      "direction": [
+        0.0,
+        0.0,
+        -1.0
+      ]
     },
     {
       "id": "L15",
@@ -225,7 +305,12 @@
       ],
       "color": "#fff2d6",
       "power": 1.0,
-      "entity": "light.hallway_2_light"
+      "entity": "light.hallway_2_light",
+      "direction": [
+        0.0,
+        0.0,
+        -1.0
+      ]
     },
     {
       "id": "L16",
@@ -238,7 +323,12 @@
       ],
       "color": "#fff2d6",
       "power": 1.0,
-      "entity": "light.toilet_light"
+      "entity": "light.toilet_light",
+      "direction": [
+        0.0,
+        0.0,
+        -1.0
+      ]
     },
     {
       "id": "L17",
@@ -251,7 +341,12 @@
       ],
       "color": "#fff2d6",
       "power": 1.0,
-      "entity": "light.bathroom"
+      "entity": "light.bathroom",
+      "direction": [
+        0.0,
+        0.0,
+        -1.0
+      ]
     },
     {
       "id": "L18",
@@ -264,7 +359,12 @@
       ],
       "color": "#fff2d6",
       "power": 1.0,
-      "entity": "light.utility_room"
+      "entity": "light.utility_room",
+      "direction": [
+        0.0,
+        0.0,
+        -1.0
+      ]
     }
   ],
   "rooms": [

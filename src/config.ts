@@ -130,8 +130,8 @@ export function validateConfig(config: unknown): SunflowFloorplanCardConfig {
           throw new Error(`overrides.${id}.end must be [x, y, z] plan cm`);
         }
       }
-      if (o.kind && o.kind !== "point" && o.kind !== "strip") {
-        throw new Error(`overrides.${id}.kind must be point|strip`);
+      if (o.kind && o.kind !== "point" && o.kind !== "strip" && o.kind !== "spot" && o.kind !== "area") {
+        throw new Error(`overrides.${id}.kind must be point|strip|spot|area`);
       }
     }
   }

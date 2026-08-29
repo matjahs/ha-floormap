@@ -60,6 +60,56 @@ describe("importBlenderScene", () => {
   });
 });
 
+describe("importBlenderScene spot/area optics", () => {
+  it("imports spot and area fixture fields", () => {
+    const raw = {
+      source: "test.blend",
+      units: "cm",
+      gltfScale: 100,
+      camera: {
+        name: "DollhouseCam",
+        eye: [0, 100, 0],
+        target: [0, 0, 0],
+        fovDeg: 40,
+      },
+      bounds: { min: [0, 0, 0], max: [100, 100, 250] },
+      fixtures: [
+        {
+          id: "L04",
+          name: "Dining pendant",
+          kind: "spot",
+          position: [100, 100, 135],
+          direction: [0, 0, -1],
+          spotAngleDeg: 55,
+          spotBlend: 0.2,
+          color: "#fff2d6",
+          power: 1,
+          entity: "light.livingroom_light_1",
+        },
+        {
+          id: "L08",
+          name: "Kitchen LED pantry",
+          kind: "area",
+          position: [400, 1300, 172],
+          direction: [0, 0, -1],
+          areaWidthCm: 60,
+          areaHeightCm: 8,
+          color: "#fff2d6",
+          power: 1,
+          entity: "light.kitchen_led_strip_pantry",
+        },
+      ],
+    };
+    const ir = importBlenderScene(raw);
+    expect(ir.fixtures[0]?.kind).toBe("spot");
+    expect(ir.fixtures[0]?.spotAngleDeg).toBe(55);
+    expect(ir.fixtures[0]?.direction?.z).toBe(-1);
+    expect(ir.fixtures[1]?.kind).toBe("area");
+    expect(ir.fixtures[1]?.areaWidth).toBe(60);
+    expect(ir.fixtures[1]?.areaHeight).toBe(8);
+  });
+});
+
 describe("mergeEntitiesFromBlenderFixtures", () => {
   it("lets Blender entity ids win while keeping card groups", () => {
     const merged = mergeEntitiesFromBlenderFixtures(

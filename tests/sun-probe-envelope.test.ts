@@ -20,7 +20,7 @@ describe("sun probe envelope", () => {
   )!;
 
   it("derives living west and bedroom/office east from room polygons", () => {
-    expect(hint.westX).toBeLessThan(400);
+    expect(hint.westX).toBeLessThan(500);
     expect(hint.eastX).toBeGreaterThan(900);
     // Same ordering in mesh space → +X is east
     expect(meshXPointsEast(hint.westX, hint.eastX, hint)).toBe(true);

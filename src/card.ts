@@ -622,6 +622,8 @@ export class SunflowFloorplanCard extends LitElement implements LovelaceCard {
       lockCamera: this._config?.render?.lock_camera !== false,
       homeView: this._homeViewFromConfig(),
       inspector: this._config?.render?.inspector === true,
+      toneMap: this._config?.render?.tone_map ?? "aces",
+      exposure: this._config?.render?.exposure ?? 1,
     });
     this._ensureCanvasMounted();
     const stage = this._canvasHostEl.closest(".sf-stage") as HTMLElement | null;
@@ -785,6 +787,7 @@ export class SunflowFloorplanCard extends LitElement implements LovelaceCard {
             friendlyName: this.hass?.states?.[seg.entity]?.attributes?.friendly_name as
               | string
               | undefined,
+            brightnessPct: this._haBrightnessPct(seg.entity, params),
           });
         }
         continue;
@@ -822,6 +825,7 @@ export class SunflowFloorplanCard extends LitElement implements LovelaceCard {
         friendlyName: this.hass?.states?.[ent.entity]?.attributes?.friendly_name as
           | string
           | undefined,
+        brightnessPct: this._haBrightnessPct(ent.entity, params),
       });
     }
     this._markers = markers;
@@ -829,6 +833,20 @@ export class SunflowFloorplanCard extends LitElement implements LovelaceCard {
       ? []
       : buildGroupTapHotspots(this._config.groups);
     this._rebuildRoomHotspots();
+  }
+
+  private _haBrightnessPct(
+    entityId: string,
+    params: { on: boolean },
+  ): number | undefined {
+    if (!params.on) {
+      return undefined;
+    }
+    const brightness = this.hass?.states?.[entityId]?.attributes?.brightness;
+    if (typeof brightness === "number" && Number.isFinite(brightness)) {
+      return Math.round((Math.min(255, Math.max(0, brightness)) / 255) * 100);
+    }
+    return 100;
   }
 
   private _hasBlenderRooms(): boolean {
@@ -2118,7 +2136,7 @@ export class SunflowFloorplanCard extends LitElement implements LovelaceCard {
                       <span class="sf-dot" style="opacity:${m.params.on ? 1 : 0.35}"></span>
                       ${m.params.on
                         ? html`<span class="sf-pct"
-                            >${Math.round(m.params.intensity * 100)}%</span
+                            >${m.brightnessPct ?? Math.round(m.params.intensity * 100)}%</span
                           >`
                         : nothing}
                     </button>

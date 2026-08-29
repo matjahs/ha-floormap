@@ -124,7 +124,10 @@ export async function createBabylonLive3dRenderer(
   const scene = new Scene(engine);
   scene.useRightHandedSystem = true; // before camera / lights / glTF (skip __root__ z-flip)
   scene.clearColor = new Color4(0.9, 0.9, 0.89, 1);
-  setupBabylonGltfLighting(scene);
+  setupBabylonGltfLighting(scene, {
+    toneMap: opts.toneMap,
+    exposure: opts.exposure,
+  });
 
   const planCx = (ir.bounds.min.x + ir.bounds.max.x) / 2;
   const planCz = (ir.bounds.min.y + ir.bounds.max.y) / 2;
@@ -286,7 +289,7 @@ export async function createBabylonLive3dRenderer(
   const shadowDepthPad = shadowSpan * 0.85;
 
   // Higher ambient below; keep fixtures strong enough to still read on walls/floors.
-  const fixtureLightScale = 1600;
+  const fixtureLightScale = 2600;
   const fixtureLightSystem = await createFixtureLightSystem(scene, fixtureLightScale);
   const lights = new Map<string, FixtureLightHandle>();
   const stripEnds = new Map<string, Vec3>();
@@ -314,8 +317,16 @@ export async function createBabylonLive3dRenderer(
       fx.id,
       positions,
       col,
-      fx.diameter ? Math.max(600, fx.diameter * 28) : 800,
+      fx.diameter ? Math.max(800, fx.diameter * 28) : 1100,
       planToRender,
+      {
+        kind,
+        direction: fx.direction,
+        spotAngleDeg: fx.spotAngleDeg,
+        spotBlend: fx.spotBlend,
+        areaWidth: fx.areaWidth,
+        areaHeight: fx.areaHeight,
+      },
     );
     lights.set(fx.id, group);
   }

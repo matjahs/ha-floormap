@@ -81,11 +81,21 @@ export interface LightFixtureIR {
   power: number;
   diameter?: number;
   /** Default point. Strip uses position→end with sampled lights in live3d. */
-  kind?: "point" | "strip";
+  kind?: "point" | "strip" | "spot" | "area";
   /** Strip endpoint in plan cm (start = position). */
   end?: Vec3;
   /** live3d sample count along strip (default 8). */
   samples?: number;
+  /** Aim direction in plan space (unit). Spot / area from Blender local -Z. */
+  direction?: Vec3;
+  /** Spot outer cone angle in degrees (Blender spot_size). */
+  spotAngleDeg?: number;
+  /** Spot penumbra blend 0..1 (Blender spot_blend). */
+  spotBlend?: number;
+  /** Rect / square area width in plan cm. */
+  areaWidth?: number;
+  /** Rect / square area height in plan cm. */
+  areaHeight?: number;
   /** Home Assistant entity id from Blender custom property `device_id`. */
   entityId?: string;
 }
