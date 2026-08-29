@@ -7,6 +7,7 @@
 import {
   AbstractMesh,
   Color3,
+  ImageProcessingConfiguration,
   MultiMaterial,
   PBRMaterial,
   StandardMaterial,
@@ -32,9 +33,25 @@ const RAL_9010 = new Color3(242 / 255, 239 / 255, 231 / 255);
 
 const GLASS_MAT_RE = /flltgrey|kozijnglas|glasstransparent|windowpane|door_glass|glasssmoked|^glass(?:\.|$)/i;
 
-export function setupBabylonGltfLighting(scene: Scene): void {
-  scene.imageProcessingConfiguration.isEnabled = false;
-  scene.imageProcessingConfiguration.toneMappingEnabled = false;
+export function setupBabylonGltfLighting(
+  scene: Scene,
+  opts: { toneMap?: "aces" | "reinhard" | "none"; exposure?: number } = {},
+): void {
+  const toneMap = opts.toneMap ?? "aces";
+  const exposure = opts.exposure ?? 1;
+  const ipc = scene.imageProcessingConfiguration;
+  if (toneMap === "none") {
+    ipc.isEnabled = false;
+    ipc.toneMappingEnabled = false;
+  } else {
+    ipc.isEnabled = true;
+    ipc.toneMappingEnabled = true;
+    ipc.toneMappingType =
+      toneMap === "reinhard"
+        ? ImageProcessingConfiguration.TONEMAPPING_STANDARD
+        : ImageProcessingConfiguration.TONEMAPPING_ACES;
+    ipc.exposure = Number.isFinite(exposure) ? Math.max(0.05, exposure) : 1;
+  }
   scene.createDefaultEnvironment({
     createSkybox: false,
     createGround: false,

@@ -25,12 +25,18 @@ export interface BlenderSceneCamera {
 export interface BlenderSceneFixture {
   id: string;
   name: string;
-  kind: "point" | "strip";
+  kind: "point" | "strip" | "spot" | "area";
   position: [number, number, number];
   end?: [number, number, number];
   samples?: number;
   color: string;
   power: number;
+  /** Aim direction in plan space (unit). */
+  direction?: [number, number, number];
+  spotAngleDeg?: number;
+  spotBlend?: number;
+  areaWidthCm?: number;
+  areaHeightCm?: number;
   /** HA `light.*` entity from Blender Object custom property `device_id`. */
   entity?: string;
 }
@@ -107,6 +113,8 @@ export function importBlenderScene(
     },
   ];
   ir.fixtures = raw.fixtures.map((fx): LightFixtureIR => {
+    const kind =
+      fx.kind === "strip" || fx.kind === "spot" || fx.kind === "area" ? fx.kind : "point";
     const item: LightFixtureIR = {
       id: fx.id,
       name: fx.name,
@@ -114,11 +122,26 @@ export function importBlenderScene(
       position: tripleToVec3(fx.position),
       color: fx.color,
       power: fx.power,
-      kind: fx.kind,
+      kind,
     };
-    if (fx.kind === "strip" && fx.end) {
+    if (kind === "strip" && fx.end) {
       item.end = tripleToVec3(fx.end);
       item.samples = fx.samples ?? 8;
+    }
+    if (Array.isArray(fx.direction) && fx.direction.length === 3) {
+      item.direction = tripleToVec3(fx.direction);
+    }
+    if (typeof fx.spotAngleDeg === "number" && Number.isFinite(fx.spotAngleDeg)) {
+      item.spotAngleDeg = fx.spotAngleDeg;
+    }
+    if (typeof fx.spotBlend === "number" && Number.isFinite(fx.spotBlend)) {
+      item.spotBlend = fx.spotBlend;
+    }
+    if (typeof fx.areaWidthCm === "number" && Number.isFinite(fx.areaWidthCm)) {
+      item.areaWidth = fx.areaWidthCm;
+    }
+    if (typeof fx.areaHeightCm === "number" && Number.isFinite(fx.areaHeightCm)) {
+      item.areaHeight = fx.areaHeightCm;
     }
     const entity = typeof fx.entity === "string" ? fx.entity.trim() : "";
     if (entity.startsWith("light.")) {

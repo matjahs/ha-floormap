@@ -74,6 +74,10 @@ export interface Live3dOptions {
   engine?: Live3dEngine;
   /** Babylon only: open the debug inspector overlay. */
   inspector?: boolean;
+  /** Image processing tone map (Babylon). */
+  toneMap?: "aces" | "reinhard" | "none";
+  /** Image processing exposure (Babylon). */
+  exposure?: number;
 }
 
 export type Live3dFactory = (

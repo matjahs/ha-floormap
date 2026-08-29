@@ -1,12 +1,12 @@
 import type { FloorplanIR, LightFixtureIR } from "./import/ir";
-import type { FixtureOverride, LightParams, StripSegmentConfig, Vec3 } from "./types";
+import type { FixtureKind, FixtureOverride, LightParams, StripSegmentConfig, Vec3 } from "./types";
 
 export const DEFAULT_STRIP_SAMPLES = 8;
 
 export function resolveFixtureKind(
   fx: LightFixtureIR | undefined,
   override?: FixtureOverride,
-): "point" | "strip" {
+): FixtureKind {
   if (override?.kind) {
     return override.kind;
   }

@@ -115,7 +115,7 @@ export async function createThreeLive3dRenderer(
     null;
 
   const useSceneMesh = Boolean(opts.sceneGltfUrl);
-  const fixtureLightScale = useSceneMesh ? 1600 : 1400;
+  const fixtureLightScale = useSceneMesh ? 2600 : 1400;
   // Blender GLB has no baked lighting; keep readable when HA lights are off.
   const amb = new THREE.AmbientLight(0xb8b4ac, useSceneMesh ? 0.08 : 0.22);
   scene.add(amb);
