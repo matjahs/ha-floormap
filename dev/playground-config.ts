@@ -35,7 +35,12 @@ export const playgroundConfig: SunflowFloorplanCardConfig = {
     floor_level: 10,
     floor_height_m: 3.05,
     elevation_m: 32,
-    lock_camera: false,
+    lock_camera: true,
+    home_view: {
+      eye: [-589.1, 1524.8, 667.7],
+      target: [748.3, 40, 658.7],
+      fovDeg: 39.6,
+    },
     /** Off by default — turn on for Babylon mesh/light debugging. */
     inspector: false,
   },
@@ -92,7 +97,10 @@ export const playgroundConfig: SunflowFloorplanCardConfig = {
     L17: { entity: "light.bathroom", group: "bathroom" },
     L18: { entity: "light.utility_room", group: "utility" },
   },
-  overrides: {},
+  overrides: {
+    L14: { gain: 3 },
+    L15: { gain: 3 },
+  },
 };
 
 export function entityIdsFromConfig(cfg: SunflowFloorplanCardConfig): string[] {
