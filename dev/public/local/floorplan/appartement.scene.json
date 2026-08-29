@@ -43,12 +43,12 @@
       ],
       "color": "#fff2d6",
       "power": 1.0,
-      "entity": "light.livingroom_light_3",
       "direction": [
         0.0,
-        0.0,
+        -0.0,
         -1.0
-      ]
+      ],
+      "entity": "light.livingroom_light_3"
     },
     {
       "id": "L02",
@@ -61,12 +61,12 @@
       ],
       "color": "#fff2d6",
       "power": 1.0,
-      "entity": "light.ceiling_2",
       "direction": [
         0.0,
-        0.0,
+        -0.0,
         -1.0
-      ]
+      ],
+      "entity": "light.ceiling_2"
     },
     {
       "id": "L03",
@@ -79,17 +79,17 @@
       ],
       "color": "#fff2d6",
       "power": 1.0,
-      "entity": "light.ceiling_1",
       "direction": [
         0.0,
-        0.0,
+        -0.0,
         -1.0
-      ]
+      ],
+      "entity": "light.ceiling_1"
     },
     {
       "id": "L04",
       "name": "Dining pendant",
-      "kind": "spot",
+      "kind": "point",
       "position": [
         286.948,
         1096.192,
@@ -97,14 +97,12 @@
       ],
       "color": "#fff2d6",
       "power": 1.0,
-      "entity": "light.livingroom_light_1",
-      "spotAngleDeg": 55.0,
-      "spotBlend": 0.2,
       "direction": [
         0.0,
-        0.0,
+        -0.0,
         -1.0
-      ]
+      ],
+      "entity": "light.livingroom_light_1"
     },
     {
       "id": "L05",
@@ -117,19 +115,19 @@
       ],
       "color": "#fff2d6",
       "power": 1.0,
-      "entity": "light.livingroom_light_5",
-      "spotAngleDeg": 70.0,
-      "spotBlend": 0.25,
       "direction": [
-        0.15,
-        -0.2,
-        -0.97
-      ]
+        -0.409007,
+        -0.57989,
+        -0.704586
+      ],
+      "spotAngleDeg": 84.411,
+      "spotBlend": 0.15,
+      "entity": "light.livingroom_light_5"
     },
     {
       "id": "L06",
       "name": "Kitchen pendant",
-      "kind": "point",
+      "kind": "area",
       "position": [
         564.492,
         1113.093,
@@ -137,17 +135,19 @@
       ],
       "color": "#fff2d6",
       "power": 1.0,
-      "entity": "light.kitchen_light_1",
       "direction": [
-        0.0,
-        0.0,
-        -1.0
-      ]
+        0.020632,
+        0.018484,
+        -0.999616
+      ],
+      "areaWidthCm": 25.0,
+      "areaHeightCm": 25.0,
+      "entity": "light.kitchen_light_1"
     },
     {
       "id": "L07",
       "name": "Kitchen LED island",
-      "kind": "area",
+      "kind": "point",
       "position": [
         559.462,
         1090.114,
@@ -155,14 +155,12 @@
       ],
       "color": "#fff2d6",
       "power": 1.0,
-      "entity": "light.kitchen_island_nanoleaf_light_strip",
-      "areaWidthCm": 120.0,
-      "areaHeightCm": 6.0,
       "direction": [
-        0.0,
-        0.0,
-        -1.0
-      ]
+        -0.016173,
+        -0.308594,
+        -0.951057
+      ],
+      "entity": "light.kitchen_island_nanoleaf_light_strip"
     },
     {
       "id": "L08",
@@ -175,14 +173,14 @@
       ],
       "color": "#fff2d6",
       "power": 1.0,
-      "entity": "light.kitchen_led_strip_pantry",
-      "areaWidthCm": 80.0,
-      "areaHeightCm": 6.0,
       "direction": [
-        0.0,
-        0.0,
-        -1.0
-      ]
+        0.004588,
+        0.087533,
+        0.996151
+      ],
+      "areaWidthCm": 80.0,
+      "areaHeightCm": 2.5,
+      "entity": "light.kitchen_led_strip_pantry"
     },
     {
       "id": "L09",
@@ -195,14 +193,14 @@
       ],
       "color": "#fff2d6",
       "power": 1.0,
-      "entity": "light.kitchen_led_strip_fridge_kitchen_ledstrip_2",
-      "areaWidthCm": 50.0,
-      "areaHeightCm": 6.0,
       "direction": [
-        0.0,
-        0.0,
-        -1.0
-      ]
+        0.003272,
+        0.075859,
+        0.997113
+      ],
+      "areaWidthCm": 80.0,
+      "areaHeightCm": 2.5,
+      "entity": "light.kitchen_led_strip_fridge_kitchen_ledstrip_2"
     },
     {
       "id": "L10",
@@ -215,12 +213,12 @@
       ],
       "color": "#fff2d6",
       "power": 1.0,
-      "entity": "light.bedroom_2",
       "direction": [
         0.0,
-        0.0,
+        -0.0,
         -1.0
-      ]
+      ],
+      "entity": "light.bedroom_2"
     },
     {
       "id": "L11",
@@ -233,12 +231,12 @@
       ],
       "color": "#fff2d6",
       "power": 1.0,
-      "entity": "light.bedroom_1",
       "direction": [
         0.0,
-        0.0,
+        -0.0,
         -1.0
-      ]
+      ],
+      "entity": "light.bedroom_1"
     },
     {
       "id": "L12",
@@ -251,12 +249,12 @@
       ],
       "color": "#fff2d6",
       "power": 1.0,
-      "entity": "light.office_light_a",
       "direction": [
         0.0,
-        0.0,
+        -0.0,
         -1.0
-      ]
+      ],
+      "entity": "light.office_light_a"
     },
     {
       "id": "L13",
@@ -269,12 +267,12 @@
       ],
       "color": "#fff2d6",
       "power": 1.0,
-      "entity": "light.office_light_b",
       "direction": [
         0.0,
-        0.0,
+        -0.0,
         -1.0
-      ]
+      ],
+      "entity": "light.office_light_b"
     },
     {
       "id": "L14",
@@ -287,12 +285,12 @@
       ],
       "color": "#fff2d6",
       "power": 1.0,
-      "entity": "light.hallway_1_light",
       "direction": [
         0.0,
-        0.0,
+        -0.0,
         -1.0
-      ]
+      ],
+      "entity": "light.hallway_1_light"
     },
     {
       "id": "L15",
@@ -305,12 +303,12 @@
       ],
       "color": "#fff2d6",
       "power": 1.0,
-      "entity": "light.hallway_2_light",
       "direction": [
         0.0,
-        0.0,
+        -0.0,
         -1.0
-      ]
+      ],
+      "entity": "light.hallway_2_light"
     },
     {
       "id": "L16",
@@ -323,12 +321,12 @@
       ],
       "color": "#fff2d6",
       "power": 1.0,
-      "entity": "light.toilet_light",
       "direction": [
         0.0,
-        0.0,
+        -0.0,
         -1.0
-      ]
+      ],
+      "entity": "light.toilet_light"
     },
     {
       "id": "L17",
@@ -341,12 +339,12 @@
       ],
       "color": "#fff2d6",
       "power": 1.0,
-      "entity": "light.bathroom",
       "direction": [
         0.0,
-        0.0,
+        -0.0,
         -1.0
-      ]
+      ],
+      "entity": "light.bathroom"
     },
     {
       "id": "L18",
@@ -359,12 +357,12 @@
       ],
       "color": "#fff2d6",
       "power": 1.0,
-      "entity": "light.utility_room",
       "direction": [
         0.0,
-        0.0,
+        -0.0,
         -1.0
-      ]
+      ],
+      "entity": "light.utility_room"
     }
   ],
   "rooms": [
