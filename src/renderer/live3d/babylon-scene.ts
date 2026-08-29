@@ -528,19 +528,53 @@ export async function createBabylonLive3dRenderer(
     engine.runRenderLoop(renderFrame);
   });
 
-  if (opts.inspector) {
-    void (async () => {
-      await import("@babylonjs/core/Debug/debugLayer");
-      await import("@babylonjs/inspector");
-      await scene.debugLayer.show({
-        embedMode: true,
-        overlay: true,
-        handleResize: true,
-        enablePopup: false,
-      });
-    })().catch((err: unknown) => {
-      console.warn("Babylon inspector failed to open", err);
+  let inspectorVisible = false;
+  let inspectorToggleSeq = 0;
+
+  const showInspector = async (): Promise<void> => {
+    const seq = ++inspectorToggleSeq;
+    await import("@babylonjs/core/Debug/debugLayer");
+    await import("@babylonjs/inspector");
+    if (seq !== inspectorToggleSeq) {
+      return;
+    }
+    await scene.debugLayer.show({
+      embedMode: true,
+      overlay: true,
+      handleResize: true,
+      enablePopup: false,
     });
+    if (seq !== inspectorToggleSeq) {
+      scene.debugLayer.hide();
+      return;
+    }
+    inspectorVisible = true;
+  };
+
+  const hideInspector = (): void => {
+    inspectorToggleSeq += 1;
+    if (scene.debugLayer.isVisible()) {
+      scene.debugLayer.hide();
+    }
+    inspectorVisible = false;
+  };
+
+  const setInspector = (enabled: boolean): void => {
+    if (enabled === inspectorVisible && (!enabled || scene.debugLayer.isVisible())) {
+      return;
+    }
+    if (!enabled) {
+      hideInspector();
+      return;
+    }
+    void showInspector().catch((err: unknown) => {
+      console.warn("Babylon inspector failed to open", err);
+      inspectorVisible = false;
+    });
+  };
+
+  if (opts.inspector) {
+    setInspector(true);
   }
 
   return {
@@ -604,6 +638,7 @@ export async function createBabylonLive3dRenderer(
         frameDollhouse();
       }
     },
+    setInspector,
     resetHomeView() {
       frameDollhouse();
     },
@@ -725,9 +760,7 @@ export async function createBabylonLive3dRenderer(
     dispose() {
       engine.stopRenderLoop();
       camera.detachControl();
-      if (scene.debugLayer.isVisible()) {
-        scene.debugLayer.hide();
-      }
+      hideInspector();
       fixtureLightSystem.dispose();
       scene.dispose();
       engine.dispose();

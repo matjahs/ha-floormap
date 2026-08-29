@@ -1756,6 +1756,27 @@ export class SunflowFloorplanCard extends LitElement implements LovelaceCard {
     this.requestUpdate();
   }
 
+  private _inspectorEnabled(): boolean {
+    return this._config?.render?.inspector === true;
+  }
+
+  private _toggleInspector(): void {
+    if (!this._config || !this._usesBabylonRenderLoop()) {
+      return;
+    }
+    const enabled = !this._inspectorEnabled();
+    this._config = {
+      ...this._config,
+      render: {
+        ...this._config.render,
+        inspector: enabled,
+      },
+    };
+    this._live3d?.setInspector(enabled);
+    fireEvent(this, "config-changed", { config: this._config });
+    this.requestUpdate();
+  }
+
   private async _copyHomeView(): Promise<void> {
     if (!this._live3d) {
       return;
@@ -1913,6 +1934,8 @@ export class SunflowFloorplanCard extends LitElement implements LovelaceCard {
       !!this._config.edit_mode && mode === "live3d" && !this._live3dFallback;
     const canDrawTap = !!this._config.edit_mode && groupIds.length > 0 && !hasBlenderRooms;
     const canFreeCam = mode === "live3d" && !this._live3dFallback;
+    const canInspector =
+      mode === "live3d" && !this._live3dFallback && this._usesBabylonRenderLoop();
     const roomPrompt = this._roomPrompt;
     const roomPromptName = roomPrompt
       ? roomDisplayName(this._ir, roomPrompt.groupId)
@@ -2110,6 +2133,14 @@ export class SunflowFloorplanCard extends LitElement implements LovelaceCard {
           : nothing}
         ${canFreeCam && !this._cameraLocked()
           ? html`<button @click=${() => void this._copyHomeView()}>Copy home view</button>`
+          : nothing}
+        ${canInspector
+          ? html`<button
+              class=${this._inspectorEnabled() ? "active" : ""}
+              @click=${() => this._toggleInspector()}
+            >
+              ${this._inspectorEnabled() ? "Inspector on" : "Inspector"}
+            </button>`
           : nothing}
         ${canEdit
           ? html`<button class=${this._editing ? "active" : ""} @click=${this._toggleEditing}>

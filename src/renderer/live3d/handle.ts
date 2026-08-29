@@ -16,6 +16,11 @@ export interface Live3dHandle {
   setCamera(cam: CameraIR): void;
   setEditTopDown(enabled: boolean): void;
   setOrbitEnabled(enabled: boolean): void;
+  /**
+   * Babylon only: show or hide the debug inspector overlay.
+   * No-op on Three.js.
+   */
+  setInspector(enabled: boolean): void;
   /** Restore locked dollhouse home framing (home_view or auto-fit). */
   resetHomeView(): void;
   setHandlesVisible(visible: boolean): void;
