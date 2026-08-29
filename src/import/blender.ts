@@ -89,12 +89,20 @@ export function importBlenderScene(
     throw new Error("Blender scene: expected { source, units: cm, camera, bounds, fixtures }");
   }
   const ir = emptyIR("blender-glb", raw.source || fileName);
+  // Clear floor-to-ceiling height for room hit-testing. Mesh AABB max includes
+  // ceiling slab / roof thickness above the room volume; using the full span
+  // (often ~267 cm) projects hotspots too high under a dollhouse camera.
+  const meshFloor = Math.max(0, raw.bounds.min[2]);
+  const meshTop = raw.bounds.max[2];
+  const meshSpan = meshTop - meshFloor;
+  const clearHeight =
+    meshSpan > 50 && meshSpan <= 255 ? Math.round(meshSpan) : 250;
   ir.levels = [
     {
       id: "blender-main",
       name: "Appartement",
       elevation: 0,
-      height: Math.max(250, raw.bounds.max[2] - raw.bounds.min[2]),
+      height: clearHeight,
       visible: true,
     },
   ];

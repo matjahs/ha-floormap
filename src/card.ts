@@ -838,16 +838,27 @@ export class SunflowFloorplanCard extends LitElement implements LovelaceCard {
       return;
     }
     const levelId = this._currentLevelId();
+    const floorHeightCm =
+      typeof this._config.render?.floor_height_m === "number" &&
+      this._config.render.floor_height_m > 0
+        ? this._config.render.floor_height_m * 100
+        : undefined;
+    const hotspotOpts = floorHeightCm !== undefined ? { floorHeightCm } : undefined;
     const live3d = this._isLive3d() && this._live3d && this._cameraLocked();
     if (live3d) {
-      this._hotspots = buildRoomHotspotsLive3d(ir, (planPos) => {
-        return this._live3d!.projectPlanToScreenPercent(planPos);
-      }, levelId);
+      this._hotspots = buildRoomHotspotsLive3d(
+        ir,
+        (planPos) => {
+          return this._live3d!.projectPlanToScreenPercent(planPos);
+        },
+        levelId,
+        hotspotOpts,
+      );
       return;
     }
     const cam = this._currentCamera();
     if (cam) {
-      this._hotspots = buildRoomHotspots(ir, cam, this._aspect(), levelId);
+      this._hotspots = buildRoomHotspots(ir, cam, this._aspect(), levelId, hotspotOpts);
     } else {
       this._hotspots = [];
     }
