@@ -49,6 +49,7 @@ import {
 import { preloadImages, idlePrefetch } from "./preload";
 import { BakedCompositor } from "./renderer/baked/compositor";
 import { renderCssFallback } from "./renderer/baked/css-fallback";
+import { DEFAULT_FIXTURE_GAIN } from "./color";
 import { LightStateAnimator, entityToLightParams, mergeOverride } from "./renderer/shared/state";
 import { dispatchMarkerAction, isDefaultToggleAction } from "./renderer/shared/markers";
 import {
@@ -774,7 +775,7 @@ export class SunflowFloorplanCard extends LitElement implements LovelaceCard {
             this._animator.get(`${fixtureId}#${si}`) ??
             entityToLightParams(this.hass?.states?.[seg.entity], {
               gamma: this._config.render?.gamma,
-              ...mergeOverride({ power: fixture?.power }, o),
+              ...this._mergeLightOverride(fixture?.power, o),
             });
           markers.push({
             fixtureId,
@@ -813,7 +814,7 @@ export class SunflowFloorplanCard extends LitElement implements LovelaceCard {
         this._animator.get(fixtureId) ??
         entityToLightParams(this.hass?.states?.[ent.entity], {
           gamma: this._config.render?.gamma,
-          ...mergeOverride({ power: fixture?.power }, o),
+          ...this._mergeLightOverride(fixture?.power, o),
         });
       markers.push({
         fixtureId,
@@ -912,6 +913,14 @@ export class SunflowFloorplanCard extends LitElement implements LovelaceCard {
     this._live3d.render();
   }
 
+  private _mergeLightOverride(power: number | undefined, override: FixtureOverride | undefined) {
+    return mergeOverride(
+      { power },
+      override,
+      this._config.render?.fixture_gain ?? DEFAULT_FIXTURE_GAIN,
+    );
+  }
+
   private _syncHassState(snap = false): void {
     this._syncSun();
     if (!this._config?.entities || !this.hass) {
@@ -928,7 +937,7 @@ export class SunflowFloorplanCard extends LitElement implements LovelaceCard {
       }
       const fixture = this._ir?.fixtures.find((f) => f.id === fixtureId);
       const o = this._config.overrides?.[fixtureId];
-      const merged = mergeOverride({ power: fixture?.power }, o);
+      const merged = this._mergeLightOverride(fixture?.power, o);
       const master = entityToLightParams(st, { ...merged, gamma });
       if (snap) {
         this._animator.snap(fixtureId, master);

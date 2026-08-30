@@ -69,6 +69,15 @@ export function validateConfig(config: unknown): SunflowFloorplanCardConfig {
   if (cfg.render?.inspector !== undefined && typeof cfg.render.inspector !== "boolean") {
     throw new Error("render.inspector must be a boolean");
   }
+  if (cfg.render?.fixture_gain !== undefined) {
+    if (
+      typeof cfg.render.fixture_gain !== "number" ||
+      !Number.isFinite(cfg.render.fixture_gain) ||
+      cfg.render.fixture_gain <= 0
+    ) {
+      throw new Error("render.fixture_gain must be a positive number");
+    }
+  }
   if (cfg.entities) {
     for (const [id, ent] of Object.entries(cfg.entities)) {
       if (!ent?.entity) {
@@ -150,6 +159,7 @@ export function stubConfig(): SunflowFloorplanCardConfig {
       tone_map: "aces",
       exposure: 1,
       gamma: 2.2,
+      fixture_gain: 3,
       transition: 400,
       ambient: "sun",
     },

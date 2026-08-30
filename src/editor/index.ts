@@ -11,6 +11,7 @@ import { importSvg } from "../import/svg";
 import { importGltfJson, importObj } from "../import/gltf";
 import { matchFixtures, type FixtureMatch } from "../matching";
 import { projectToPercent, selectCamera } from "../projection";
+import { DEFAULT_FIXTURE_GAIN } from "../color";
 
 type Tab = "import" | "mapping" | "tuning" | "yaml";
 
@@ -394,6 +395,25 @@ export class SunflowFloorplanCardEditor extends LitElement implements LovelaceCa
               })}
           />
         </label>
+        <label>
+          Fixture gain
+          <input
+            type="number"
+            step="0.1"
+            min="0.1"
+            .value=${String(this._config.render?.fixture_gain ?? DEFAULT_FIXTURE_GAIN)}
+            @change=${(ev: Event) => {
+              const n = Number.parseFloat((ev.target as HTMLInputElement).value);
+              this._emit({
+                ...this._config,
+                render: {
+                  ...this._config.render,
+                  fixture_gain: Number.isFinite(n) && n > 0 ? n : DEFAULT_FIXTURE_GAIN,
+                },
+              });
+            }}
+          />
+        </label>
         ${Object.keys(entities).map((id) => {
           const fx = this._ir?.fixtures.find((f) => f.id === id);
           const o = this._config.overrides?.[id];
@@ -417,7 +437,11 @@ export class SunflowFloorplanCardEditor extends LitElement implements LovelaceCa
                 <input
                   type="number"
                   step="0.1"
-                  .value=${String(this._config.overrides?.[id]?.gain ?? 1)}
+                  .value=${String(
+                    this._config.overrides?.[id]?.gain ??
+                      this._config.render?.fixture_gain ??
+                      DEFAULT_FIXTURE_GAIN,
+                  )}
                   @change=${(ev: Event) =>
                     this._setGain(id, Number.parseFloat((ev.target as HTMLInputElement).value))}
                 />

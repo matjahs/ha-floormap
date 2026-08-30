@@ -1,5 +1,6 @@
 import {
   brightnessToIntensity,
+  DEFAULT_FIXTURE_GAIN,
   kelvinToRgb,
   normalizeLuminance,
   rgb255ToLinear,
@@ -50,7 +51,7 @@ export function entityToLightParams(
     on ? "on" : s,
     opts.gamma ?? 2.2,
     opts.power ?? 1,
-    opts.gain ?? 1,
+    opts.gain ?? DEFAULT_FIXTURE_GAIN,
     opts.curve ?? "gamma",
   );
 
@@ -216,10 +217,13 @@ export class LightStateAnimator {
 export function mergeOverride(
   base: { power?: number },
   override?: FixtureOverride,
+  defaultGain: number = DEFAULT_FIXTURE_GAIN,
 ): { power: number; gain: number; curve: "gamma" | "linear"; color?: string } {
+  const fallback =
+    Number.isFinite(defaultGain) && defaultGain > 0 ? defaultGain : DEFAULT_FIXTURE_GAIN;
   return {
     power: base.power ?? 1,
-    gain: override?.gain ?? 1,
+    gain: override?.gain ?? fallback,
     curve: override?.curve ?? "gamma",
     color: override?.color,
   };

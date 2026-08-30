@@ -71,6 +71,25 @@ describe("config validation", () => {
     ).toThrow(/render\.lock_camera/);
   });
 
+  it("rejects non-positive render.fixture_gain", () => {
+    expect(() =>
+      validateConfig({
+        type: "custom:sunflow-floorplan-card",
+        entities: { a: { entity: "light.x" } },
+        render: { fixture_gain: 0 },
+      }),
+    ).toThrow(/render\.fixture_gain/);
+  });
+
+  it("accepts render.fixture_gain", () => {
+    const cfg = validateConfig({
+      type: "custom:sunflow-floorplan-card",
+      entities: { a: { entity: "light.x" } },
+      render: { fixture_gain: 3 },
+    });
+    expect(cfg.render?.fixture_gain).toBe(3);
+  });
+
   it("rejects marker override that is not a pair", () => {
     expect(() =>
       validateConfig({

@@ -2,12 +2,14 @@ import { describe, expect, it } from "vitest";
 import {
   acesToneMap,
   brightnessToIntensity,
+  DEFAULT_FIXTURE_GAIN,
   kelvinToRgb,
   relativeLuminance,
   reinhardToneMap,
   srgbToLinear,
   applyToneMap,
 } from "../src/color";
+import { mergeOverride } from "../src/renderer/shared/state";
 
 describe("color / brightness", () => {
   it("maps 20% brightness much dimmer than 100% in linear energy", () => {
@@ -16,6 +18,14 @@ describe("color / brightness", () => {
     expect(full).toBeCloseTo(1, 5);
     expect(dim).toBeLessThan(0.05);
     expect(dim / full).toBeLessThan(0.1);
+  });
+
+  it("applies default fixture gain so 50% HA brightness is clearly visible", () => {
+    const mid = brightnessToIntensity(Math.round(0.5 * 255), "on", 2.2, 1, DEFAULT_FIXTURE_GAIN);
+    const midUnlifted = brightnessToIntensity(Math.round(0.5 * 255), "on", 2.2, 1, 1);
+    expect(DEFAULT_FIXTURE_GAIN).toBe(3);
+    expect(mid).toBeCloseTo(midUnlifted * DEFAULT_FIXTURE_GAIN, 5);
+    expect(mid).toBeGreaterThan(0.6);
   });
 
   it("returns 0 intensity when off / unavailable", () => {
@@ -45,5 +55,23 @@ describe("color / brightness", () => {
     const lin = srgbToLinear([0.5, 0.5, 0.5]);
     expect(lin[0]).toBeGreaterThan(0.2);
     expect(lin[0]).toBeLessThan(0.5);
+  });
+});
+
+describe("mergeOverride fixture gain", () => {
+  it("defaults every fixture to DEFAULT_FIXTURE_GAIN", () => {
+    expect(mergeOverride({ power: 1 }).gain).toBe(DEFAULT_FIXTURE_GAIN);
+  });
+
+  it("keeps the default brightness curve at gamma", () => {
+    expect(mergeOverride({ power: 1 }).curve).toBe("gamma");
+  });
+
+  it("uses render.fixture_gain when no per-fixture override", () => {
+    expect(mergeOverride({ power: 1 }, undefined, 4).gain).toBe(4);
+  });
+
+  it("lets per-fixture gain win over the default", () => {
+    expect(mergeOverride({ power: 1 }, { gain: 1.2 }, 3).gain).toBe(1.2);
   });
 });
