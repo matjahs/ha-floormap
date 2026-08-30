@@ -22,6 +22,7 @@ export const playgroundConfig: SunflowFloorplanCardConfig = {
     tone_map: "aces",
     exposure: 1.0,
     gamma: 2.2,
+    fixture_gain: 3,
     transition: 400,
     ambient: "sun",
     /**
@@ -96,10 +97,6 @@ export const playgroundConfig: SunflowFloorplanCardConfig = {
     L16: { entity: "light.toilet_light", group: "toilet" },
     L17: { entity: "light.bathroom", group: "bathroom" },
     L18: { entity: "light.utility_room", group: "utility" },
-  },
-  overrides: {
-    L14: { gain: 3 },
-    L15: { gain: 3 },
   },
 };
 

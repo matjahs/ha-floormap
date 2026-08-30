@@ -87,6 +87,11 @@ export interface RenderConfig {
   tone_map?: ToneMap;
   exposure?: number;
   gamma?: number;
+  /**
+   * Default fixture energy multiplier (HA brightness → 3D intensity).
+   * Per-fixture `overrides.<id>.gain` still wins. Typical HA levels stay under 50%.
+   */
+  fixture_gain?: number;
   transition?: number;
   /** off | sun | entity_id with azimuth/elevation attributes */
   ambient?: AmbientMode;

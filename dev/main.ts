@@ -6,7 +6,7 @@ import { CARD_TYPE, SunflowFloorplanCard } from "../src/card";
 import { overridesToPlacements } from "../src/pose";
 import { entityIdsFromConfig, playgroundConfig } from "./playground-config";
 import { MockHass, registerHaStubs } from "./mock-hass";
-import { playgroundSunPresets } from "../src/sun";
+import { approximateSun } from "../src/sun";
 
 const ambientFillSlider = document.querySelector("#ambient-fill") as HTMLInputElement | null;
 const ambientFillValue = document.querySelector("#ambient-fill-value") as HTMLElement | null;
@@ -65,10 +65,10 @@ function renderToggles(): void {
   }
 }
 
-/** Quiet night sun so fixture / ambient fill work reads without sun debug UI. */
-function applyNightSun(): void {
-  const night = playgroundSunPresets().night;
-  mock.setSun(night.azimuth, night.elevation);
+/** Match HA: use the real sun pose for now, not a forced night. */
+function applyLiveSun(): void {
+  const pose = approximateSun(new Date());
+  mock.setSun(pose.azimuth, pose.elevation);
 }
 
 function refreshExport(): void {
@@ -191,6 +191,12 @@ document.querySelector("#btn-all-on")?.addEventListener("click", () => {
     mock.setState(id, true);
   }
 });
+document.querySelector("#btn-typical")?.addEventListener("click", () => {
+  const brightness = Math.round(0.4 * 255);
+  for (const id of entityIds) {
+    mock.setState(id, true, brightness);
+  }
+});
 document.querySelector("#btn-all-off")?.addEventListener("click", () => {
   for (const id of entityIds) {
     mock.setState(id, false);
@@ -268,7 +274,7 @@ if (import.meta.hot) {
   });
 }
 
-applyNightSun();
+applyLiveSun();
 mountCard();
 renderToggles();
 void probeAssets();

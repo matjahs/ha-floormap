@@ -85,6 +85,13 @@ export function normalizeLuminance(linear: RGB): RGB {
 }
 
 /**
+ * Default multiplier on fixture linear energy.
+ * HA brightness is rarely above 50%; gamma 2.2 maps that to ~0.22 energy.
+ * Gain 3 makes typical levels light the mesh without per-fixture YAML.
+ */
+export const DEFAULT_FIXTURE_GAIN = 3;
+
+/**
  * HA brightness is perceptual (0–255). Convert to linear energy with gamma.
  */
 export function brightnessToIntensity(
@@ -92,7 +99,7 @@ export function brightnessToIntensity(
   state: string,
   gamma = 2.2,
   power = 1,
-  gain = 1,
+  gain = DEFAULT_FIXTURE_GAIN,
   curve: "gamma" | "linear" = "gamma",
 ): number {
   if (state !== "on") {
